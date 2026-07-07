@@ -1,21 +1,12 @@
 "use client";
 
-import { Brain, MessageSquare, PlugZap, Plus, Save, ServerCog, ShieldCheck, Sparkles, Trash2, UserCog } from "lucide-react";
+import { MessageSquare, PlugZap, Plus, Save, ServerCog, ShieldCheck, Sparkles, Ticket, Trash2, UserCog } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import type { AffinityLevel, CharacterCard, CharacterVisibility, CompanionState, Fact, ModelSettings } from "@/domain/types";
+import type { AffinityLevel, CharacterCard, CharacterVisibility, CompanionState, ModelSettings } from "@/domain/types";
 import { applyModelPreset, getModelPreset } from "../model-presets";
 
-const factTypeLabels: Record<Fact["factType"], string> = {
-  birthday: "生日",
-  nickname: "称呼",
-  preference: "喜好",
-  promise: "约定",
-  milestone: "重要时刻",
-  note: "其他"
-};
-
-type AdminSection = "characters" | "models" | "audit";
+type AdminSection = "characters" | "invites" | "models" | "audit";
 type ModelTarget = "chat" | "image" | "tts";
 type CharacterBookEntry = CharacterCard["characterBook"][number];
 
@@ -103,14 +94,7 @@ export default function AdminApp({
   const [characterTestReply, setCharacterTestReply] = useState<string | null>(null);
   const [characterTestError, setCharacterTestError] = useState<string | null>(null);
 
-  const userId = state.users[0]?.id ?? "";
   const demoUser = state.users[0];
-  const activeConversation = state.conversations.find(
-    (item) => item.userId === userId && item.characterId === activeCharacterId
-  );
-  const activeFacts = state.facts.filter(
-    (fact) => fact.userId === userId && fact.characterId === activeCharacterId && !fact.supersededBy
-  );
   const auditLogs = [...state.auditLogs].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200);
 
   async function toggleMinorMode(next: boolean) {
@@ -123,14 +107,6 @@ export default function AdminApp({
       const payload = (await response.json()) as { state: CompanionState };
       setState(payload.state);
       setNotice(next ? "已开启未成年人模式" : "已关闭未成年人模式");
-    }
-  }
-
-  async function removeFact(factId: string) {
-    const response = await fetch(`/api/memories/${factId}`, { method: "DELETE" });
-    if (response.ok) {
-      const payload = (await response.json()) as { state: CompanionState };
-      setState(payload.state);
     }
   }
 
@@ -405,6 +381,16 @@ export default function AdminApp({
             </span>
           </Link>
           <Link
+            className={activeSection === "invites" ? "active" : ""}
+            href="/admin/invites"
+          >
+            <Ticket size={20} />
+            <span>
+              <strong>邀请码</strong>
+              <small>邀请制注册</small>
+            </span>
+          </Link>
+          <Link
             className={activeSection === "models" ? "active" : ""}
             href="/admin/models"
           >
@@ -431,7 +417,15 @@ export default function AdminApp({
         <header className="adminHeader">
           <div>
             <span>后台配置</span>
-            <h1>{activeSection === "characters" ? "角色管理" : activeSection === "models" ? "模型管理" : "安全合规"}</h1>
+            <h1>
+              {activeSection === "characters"
+                ? "角色管理"
+                : activeSection === "invites"
+                  ? "邀请码"
+                  : activeSection === "models"
+                    ? "模型管理"
+                    : "安全合规"}
+            </h1>
           </div>
           {notice ? <strong>{notice}</strong> : null}
         </header>
@@ -696,11 +690,15 @@ export default function AdminApp({
               {characterTestError ? <p className="characterTestError">{characterTestError}</p> : null}
             </div>
           </form>
+        </div>
+        ) : null}
 
+        {activeSection === "invites" ? (
+        <div className="adminGrid">
           <section className="adminPanel invitePanel">
             <header>
-              <UserCog size={20} />
-              <h2>邀请码</h2>
+              <Ticket size={20} />
+              <h2>邀请码管理</h2>
               <button
                 className="adminAddCharacter"
                 disabled={generatingInvite}
@@ -720,35 +718,6 @@ export default function AdminApp({
                   <div className={`inviteItem${invite.usedByUserId ? " used" : ""}`} key={invite.code}>
                     <code>{invite.code}</code>
                     <span>{invite.usedByUserId ? "已使用" : "可用"}</span>
-                  </div>
-                ))
-              )}
-            </div>
-          </section>
-
-          <section className="adminPanel memoryPanel">
-            <header>
-              <Brain size={20} />
-              <h2>角色记忆</h2>
-            </header>
-            <div className="memorySummary">
-              <strong>关系摘要</strong>
-              <p>{activeConversation?.summary || "还没有形成长期摘要。"}</p>
-            </div>
-            <div className="memoryList">
-              {activeFacts.length === 0 ? (
-                <p className="memoryEmpty">该角色还没有记住任何事实。</p>
-              ) : (
-                activeFacts.map((fact) => (
-                  <div className="memoryItem" key={fact.id}>
-                    <div>
-                      <span className="memoryType">{factTypeLabels[fact.factType]}</span>
-                      <span className="memoryContent">{fact.content}</span>
-                      <span className="memorySource">{fact.source === "llm" ? "AI抽取" : "规则"}</span>
-                    </div>
-                    <button className="memoryDelete" type="button" onClick={() => removeFact(fact.id)}>
-                      <Trash2 size={14} />
-                    </button>
                   </div>
                 ))
               )}
