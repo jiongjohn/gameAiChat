@@ -1731,3 +1731,141 @@ button {
 .inviteItem.used code {
   text-decoration: line-through;
 }
+
+.contactsScreen .wxList,
+.contactList {
+  padding-bottom: 12px;
+}
+
+.contactSection {
+  background: var(--app-bg);
+  color: #8a8a8a;
+  font-size: 12px;
+  margin: 0;
+  padding: 10px 16px 6px;
+}
+
+.contactCard {
+  min-height: 66px;
+}
+
+.contactTag {
+  background: rgba(94, 74, 103, 0.1);
+  border-radius: 999px;
+  color: var(--plum);
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-style: normal;
+  padding: 2px 8px;
+}
+
+.wxThreadLine i.contactBadge {
+  background: rgba(24, 179, 91, 0.12);
+  border-radius: 999px;
+  color: #246642;
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-style: normal;
+  min-width: auto;
+  padding: 2px 8px;
+}
+
+.contactChevron {
+  color: #c4c4c4;
+  flex: 0 0 auto;
+}
+
+.characterDetail {
+  background: var(--app-bg);
+}
+
+.detailScroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.detailHero {
+  align-items: center;
+  background: white;
+  border-bottom: 1px solid var(--hairline);
+  display: flex;
+  gap: 14px;
+  padding: 20px 16px;
+}
+
+.detailHero > div {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  min-width: 0;
+}
+
+.detailHero strong {
+  font-size: 20px;
+  font-weight: 650;
+}
+
+.detailHero span {
+  color: var(--muted);
+  font-size: 13px;
+}
+
+.detailHero .contactTag {
+  align-self: flex-start;
+  margin-top: 2px;
+}
+
+.detailBlock {
+  background: white;
+  border-bottom: 1px solid var(--hairline);
+  margin-top: 10px;
+  padding: 14px 16px;
+}
+
+.detailBlock h2 {
+  color: #576b95;
+  font-size: 13px;
+  font-weight: 600;
+  margin: 0 0 8px;
+}
+
+.detailBlock p {
+  color: #33302e;
+  font-size: 14px;
+  line-height: 1.7;
+  margin: 0;
+}
+
+.detailQuote {
+  border-left: 3px solid rgba(94, 74, 103, 0.35);
+  color: #514b48 !important;
+  font-style: italic;
+  padding-left: 10px;
+}
+
+.detailFooter {
+  background: white;
+  border-top: 1px solid var(--hairline);
+  flex: 0 0 auto;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+}
+
+.detailPrimary {
+  align-items: center;
+  background: var(--wechat);
+  border: 0;
+  border-radius: 10px;
+  color: white;
+  display: flex;
+  font-size: 15px;
+  font-weight: 600;
+  gap: 8px;
+  justify-content: center;
+  min-height: 48px;
+  width: 100%;
+}
+
+.detailPrimary:disabled {
+  opacity: 0.55;
+}

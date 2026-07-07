@@ -61,6 +61,26 @@ export function buildAddableContacts(state: CompanionState, userId: string): Cha
   );
 }
 
+export interface ContactDirectoryEntry {
+  character: CharacterCard;
+  activated: boolean;
+}
+
+export function buildContactDirectory(state: CompanionState, userId: string): ContactDirectoryEntry[] {
+  const activated = new Set(
+    state.conversations.filter((item) => item.userId === userId).map((item) => item.characterId)
+  );
+  return state.characters
+    .filter((character) => isCharacterVisibleTo(character, userId))
+    .map((character) => ({ character, activated: activated.has(character.id) }))
+    .sort((a, b) => {
+      if (a.activated !== b.activated) {
+        return a.activated ? -1 : 1;
+      }
+      return a.character.name.localeCompare(b.character.name, "zh-Hans-CN");
+    });
+}
+
 export function buildMomentFeed(state: CompanionState, userId: string): MomentFeedItem[] {
   const likes = state.momentLikes ?? [];
   const comments = state.momentComments ?? [];

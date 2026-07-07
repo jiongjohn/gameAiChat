@@ -4,6 +4,7 @@ import {
   Bell,
   Camera,
   ChevronLeft,
+  ChevronRight,
   Heart,
   LogOut,
   MessageCircle,
@@ -22,10 +23,11 @@ import type { AffinityRecord, CharacterCard, CompanionState, Fact, Message } fro
 import { streamChatMessage } from "./chat-stream";
 import { loadCompanionState } from "./client-state";
 import {
-  buildAddableContacts,
   buildChatThreads,
+  buildContactDirectory,
   buildMomentFeed,
   type ChatThread,
+  type ContactDirectoryEntry,
   type MomentFeedItem
 } from "./mobile-view-model";
 
@@ -159,19 +161,19 @@ function ChatList({
   threads,
   onOpen,
   onGenerateMoment,
-  onAddContact
+  onOpenContacts
 }: {
   threads: ChatThread[];
   onOpen: (characterId: string) => void;
   onGenerateMoment: () => void;
-  onAddContact: () => void;
+  onOpenContacts: () => void;
 }) {
   return (
     <section className="wxScreen">
       <TopBar
         title="消息"
         right={
-          <button className="iconButton" type="button" title="加联系人" onClick={onAddContact}>
+          <button className="iconButton" type="button" title="通讯录" onClick={onOpenContacts}>
             <Plus size={22} />
           </button>
         }
@@ -219,53 +221,146 @@ function ChatList({
   );
 }
 
-function AddContactSheet({
-  contacts,
-  busy,
-  onAdd,
-  onClose
+function ContactsScreen({
+  entries,
+  onBack,
+  onSelect
 }: {
-  contacts: CharacterCard[];
-  busy: boolean;
-  onAdd: (characterId: string) => void;
-  onClose: () => void;
+  entries: ContactDirectoryEntry[];
+  onBack: () => void;
+  onSelect: (characterId: string) => void;
 }) {
+  const activeCount = entries.filter((entry) => entry.activated).length;
+
   return (
-    <div className="wxSheetMask" role="presentation" onClick={onClose}>
-      <section className="wxSheet" role="dialog" aria-label="加联系人" onClick={(event) => event.stopPropagation()}>
-        <header className="wxSheetHeader">
-          <strong>加联系人</strong>
-          <button className="iconButton" type="button" title="关闭" onClick={onClose}>
-            <ChevronLeft size={22} />
+    <section className="wxScreen contactsScreen">
+      <TopBar
+        title="通讯录"
+        subtitle={`${entries.length} 位角色`}
+        left={
+          <button className="iconButton" type="button" title="返回" onClick={onBack}>
+            <ChevronLeft size={24} />
           </button>
-        </header>
-        {contacts.length === 0 ? (
-          <p className="wxSheetEmpty">暂时没有可添加的角色</p>
-        ) : (
-          <div className="wxList">
-            {contacts.map((character) => (
-              <button
-                className="wxThread"
-                key={character.id}
-                type="button"
-                disabled={busy}
-                onClick={() => onAdd(character.id)}
-              >
-                <Avatar character={character} />
-                <span className="wxThreadBody">
-                  <span className="wxThreadLine">
-                    <strong>{character.name}</strong>
+        }
+      />
+      {entries.length === 0 ? (
+        <p className="wxSheetEmpty">暂时没有可添加的角色</p>
+      ) : (
+        <div className="wxList contactList">
+          <p className="contactSection">已添加 · {activeCount}</p>
+          {entries.map((entry, index) => {
+            const previous = entries[index - 1];
+            const showDivider = index > 0 && previous.activated && !entry.activated;
+            return (
+              <div key={entry.character.id}>
+                {showDivider ? <p className="contactSection">更多角色</p> : null}
+                <button
+                  className="wxThread contactCard"
+                  type="button"
+                  onClick={() => onSelect(entry.character.id)}
+                >
+                  <Avatar character={entry.character} />
+                  <span className="wxThreadBody">
+                    <span className="wxThreadLine">
+                      <strong>{entry.character.name}</strong>
+                      {entry.character.personalityType ? (
+                        <em className="contactTag">{entry.character.personalityType}</em>
+                      ) : null}
+                    </span>
+                    <span className="wxThreadLine">
+                      <small>{entry.character.tagline}</small>
+                      {entry.activated ? (
+                        <i className="contactBadge">已添加</i>
+                      ) : (
+                        <ChevronRight size={16} className="contactChevron" />
+                      )}
+                    </span>
                   </span>
-                  <span className="wxThreadLine">
-                    <small>{character.tagline}</small>
-                  </span>
-                </span>
-              </button>
-            ))}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CharacterDetailScreen({
+  character,
+  activated,
+  busy,
+  onBack,
+  onAdd,
+  onOpenChat
+}: {
+  character: CharacterCard;
+  activated: boolean;
+  busy: boolean;
+  onBack: () => void;
+  onAdd: (characterId: string) => void;
+  onOpenChat: (characterId: string) => void;
+}) {
+  const sections: Array<{ label: string; value: string }> = [
+    { label: "人物简介", value: character.description },
+    { label: "性格", value: character.personality },
+    { label: "相遇背景", value: character.scenario }
+  ].filter((section) => Boolean(section.value?.trim()));
+
+  return (
+    <section className="wxScreen characterDetail">
+      <TopBar
+        title="角色资料"
+        left={
+          <button className="iconButton" type="button" title="返回" onClick={onBack}>
+            <ChevronLeft size={24} />
+          </button>
+        }
+      />
+      <div className="detailScroll">
+        <div className="detailHero">
+          <Avatar character={character} size="lg" />
+          <div>
+            <strong>{character.name}</strong>
+            <span>{character.tagline}</span>
+            {character.personalityType ? <em className="contactTag">{character.personalityType}</em> : null}
           </div>
+        </div>
+        {sections.map((section) => (
+          <section className="detailBlock" key={section.label}>
+            <h2>{section.label}</h2>
+            <p>{section.value}</p>
+          </section>
+        ))}
+        <section className="detailBlock">
+          <h2>初次问候</h2>
+          <p className="detailQuote">{character.firstMessage}</p>
+        </section>
+      </div>
+      <div className="detailFooter">
+        {activated ? (
+          <button
+            className="detailPrimary"
+            type="button"
+            disabled={busy}
+            onClick={() => onOpenChat(character.id)}
+          >
+            <MessageCircle size={18} />
+            <span>进入聊天</span>
+          </button>
+        ) : (
+          <button
+            className="detailPrimary"
+            type="button"
+            disabled={busy}
+            onClick={() => onAdd(character.id)}
+          >
+            <Plus size={18} />
+            <span>{busy ? "添加中…" : "添加并开始聊天"}</span>
+          </button>
         )}
-      </section>
-    </div>
+      </div>
+    </section>
   );
 }
 
@@ -616,10 +711,14 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
   const [busy, setBusy] = useState(false);
   const [streamingReply, setStreamingReply] = useState<string | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
-  const [addContactOpen, setAddContactOpen] = useState(false);
+  const [contactsOpen, setContactsOpen] = useState(false);
+  const [detailCharacterId, setDetailCharacterId] = useState<string | null>(null);
   const active = useActiveContext(state, activeCharacterId);
   const threads = state ? buildChatThreads(state, state.users[0].id) : [];
-  const addableContacts = state ? buildAddableContacts(state, state.users[0].id) : [];
+  const contactDirectory = state ? buildContactDirectory(state, state.users[0].id) : [];
+  const detailEntry = detailCharacterId
+    ? contactDirectory.find((entry) => entry.character.id === detailCharacterId)
+    : undefined;
 
   useEffect(() => {
     setActiveCharacterId(initialState.characters[0]?.id ?? "shen-jibai");
@@ -663,12 +762,19 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
       }
       const payload = (await response.json()) as { state: CompanionState };
       setState(payload.state);
-      setAddContactOpen(false);
+      setContactsOpen(false);
+      setDetailCharacterId(null);
       setActiveCharacterId(characterId);
       setRoomOpen(true);
     } finally {
       setBusy(false);
     }
+  }
+
+  function openChatFromContacts(characterId: string) {
+    setContactsOpen(false);
+    setDetailCharacterId(null);
+    openRoom(characterId);
   }
 
   function openRoom(characterId: string) {
@@ -850,21 +956,31 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
           />
         ) : null}
 
-        {activeTab === "chats" && !(roomOpen && active) ? (
+        {activeTab === "chats" && !(roomOpen && active) && !contactsOpen ? (
           <ChatList
             threads={threads}
             onOpen={openRoom}
             onGenerateMoment={triggerMoment}
-            onAddContact={() => setAddContactOpen(true)}
+            onOpenContacts={() => setContactsOpen(true)}
           />
         ) : null}
 
-        {addContactOpen ? (
-          <AddContactSheet
-            contacts={addableContacts}
+        {contactsOpen && detailEntry ? (
+          <CharacterDetailScreen
+            character={detailEntry.character}
+            activated={detailEntry.activated}
             busy={busy}
+            onBack={() => setDetailCharacterId(null)}
             onAdd={addContact}
-            onClose={() => setAddContactOpen(false)}
+            onOpenChat={openChatFromContacts}
+          />
+        ) : null}
+
+        {contactsOpen && !detailEntry ? (
+          <ContactsScreen
+            entries={contactDirectory}
+            onBack={() => setContactsOpen(false)}
+            onSelect={setDetailCharacterId}
           />
         ) : null}
 
@@ -894,7 +1010,7 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
           )
         ) : null}
 
-        {!roomOpen ? <TabBar activeTab={activeTab} onTab={setActiveTab} /> : null}
+        {!roomOpen && !contactsOpen ? <TabBar activeTab={activeTab} onTab={setActiveTab} /> : null}
       </div>
     </main>
   );
