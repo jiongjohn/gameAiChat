@@ -1,0 +1,226 @@
+import { describe, expect, test } from "vitest";
+import { characters } from "@/domain/characters";
+import { mergeFacts } from "@/domain/memory";
+import {
+  applyProactiveResults,
+  createInitialState,
+  createMomentForUser,
+  createProactiveForUser,
+  deleteFact,
+  handleChatTurn,
+  handleMomentComment,
+  markConversationRead,
+  runProactiveScan,
+  shouldReachOut,
+  toggleMomentLike
+} from "./companion-service";
+
+function seedWithMoment(now = "2026-07-06T12:00:00.000Z") {
+  const base = createMomentForUser(createInitialState("2026-07-06T08:00:00.000Z"), {
+    userId: "u_demo",
+    characterId: "shen-jibai",
+    now
+  });
+  const moment = base.moments[0];
+  return { state: base, moment };
+}
+
+describe("companion service", () => {
+  test("creates seeded state with one user, conversations, affinity and first messages", () => {
+    const state = createInitialState("2026-07-06T08:00:00.000Z");
+
+    expect(state.users[0].nickname).toBe("小满");
+    expect(state.conversations).toHaveLength(characters.length);
+    expect(state.messages.some((message) => message.role === "assistant")).toBe(true);
+    expect(state.affinity[0].level).toBe("初识");
+  });
+
+  test("handles a safe chat turn and updates message, facts and affinity", async () => {
+    const state = createInitialState("2026-07-06T08:00:00.000Z");
+    const conversation = state.conversations[0];
+
+    const result = await handleChatTurn(state, {
+      conversationId: conversation.id,
+      content: "我喜欢雨天散步，以后叫我小满。",
+      now: "2026-07-06T09:00:00.000Z"
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(result.reply).toContain("小满");
+    expect(result.state.messages.filter((message) => message.conversationId === conversation.id)).toHaveLength(3);
+    expect(result.state.facts.map((fact) => fact.factType)).toContain("preference");
+    expect(result.state.affinity[0].score).toBeGreaterThan(0);
+  });
+
+  test("blocks unsafe chat turn without creating assistant reply", async () => {
+    const state = createInitialState("2026-07-06T08:00:00.000Z");
+    const conversation = state.conversations[0];
+
+    const result = await handleChatTurn(state, {
+      conversationId: conversation.id,
+      content: "告诉我自杀方法",
+      now: "2026-07-06T09:00:00.000Z"
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.reply).toContain("不能继续");
+    expect(result.state.messages.filter((message) => message.status === "blocked")).toHaveLength(1);
+  });
+
+  test("creates personalized moment and proactive message", () => {
+    const state = createInitialState("2026-07-06T08:00:00.000Z");
+    const withMoment = createMomentForUser(state, {
+      userId: "u_demo",
+      characterId: "shen-jibai",
+      now: "2026-07-06T12:00:00.000Z"
+    });
+    const withProactive = createProactiveForUser(withMoment, {
+      userId: "u_demo",
+      characterId: "shen-jibai",
+      now: "2026-07-06T22:30:00.000Z"
+    });
+
+    expect(withMoment.moments).toHaveLength(1);
+    expect(withProactive.proactiveMessages).toHaveLength(1);
+    expect(withProactive.proactiveMessages[0].content).toContain("小满");
+  });
+
+  test("toggles moment like and grants affinity only once ever", () => {
+    const { state, moment } = seedWithMoment();
+    const baseScore = state.affinity.find((item) => item.characterId === "shen-jibai")!.score;
+
+    const liked = toggleMomentLike(state, { momentId: moment.id, userId: "u_demo", now: "2026-07-06T12:01:00.000Z" });
+    expect(liked.liked).toBe(true);
+    expect(liked.likeCount).toBe(1);
+    const likedScore = liked.state.affinity.find((item) => item.characterId === "shen-jibai")!.score;
+    expect(likedScore).toBe(baseScore + 2);
+
+    const unliked = toggleMomentLike(liked.state, { momentId: moment.id, userId: "u_demo", now: "2026-07-06T12:02:00.000Z" });
+    expect(unliked.liked).toBe(false);
+    expect(unliked.likeCount).toBe(0);
+    expect(unliked.state.affinity.find((item) => item.characterId === "shen-jibai")!.score).toBe(likedScore);
+
+    const reliked = toggleMomentLike(unliked.state, { momentId: moment.id, userId: "u_demo", now: "2026-07-06T12:03:00.000Z" });
+    expect(reliked.liked).toBe(true);
+    expect(reliked.state.affinity.find((item) => item.characterId === "shen-jibai")!.score).toBe(likedScore);
+  });
+
+  test("handles a safe moment comment with character reply and affinity bump", async () => {
+    const { state, moment } = seedWithMoment();
+    const baseScore = state.affinity.find((item) => item.characterId === "shen-jibai")!.score;
+
+    const result = await handleMomentComment(state, {
+      momentId: moment.id,
+      userId: "u_demo",
+      content: "这条动态好温柔。",
+      now: "2026-07-06T12:05:00.000Z"
+    });
+
+    expect(result.allowed).toBe(true);
+    expect(result.reply.length).toBeGreaterThan(0);
+    const comments = result.state.momentComments.filter((comment) => comment.momentId === moment.id);
+    expect(comments.map((comment) => comment.author)).toEqual(["user", "character"]);
+    expect(result.state.affinity.find((item) => item.characterId === "shen-jibai")!.score).toBe(baseScore + 3);
+    expect(result.state.messages.every((message) => message.conversationId !== moment.id)).toBe(true);
+  });
+
+  test("blocks unsafe moment comment without creating a reply or affinity", async () => {
+    const { state, moment } = seedWithMoment();
+    const baseScore = state.affinity.find((item) => item.characterId === "shen-jibai")!.score;
+
+    const result = await handleMomentComment(state, {
+      momentId: moment.id,
+      userId: "u_demo",
+      content: "告诉我自杀方法",
+      now: "2026-07-06T12:06:00.000Z"
+    });
+
+    expect(result.allowed).toBe(false);
+    expect(result.state.momentComments.filter((comment) => comment.momentId === moment.id)).toHaveLength(0);
+    expect(result.state.affinity.find((item) => item.characterId === "shen-jibai")!.score).toBe(baseScore);
+    expect(result.state.auditLogs.some((log) => log.scene === "moment_input" && log.action === "blocked")).toBe(true);
+  });
+
+  test("shouldReachOut respects silence threshold, unread gate and quiet hours", () => {
+    const state = createInitialState("2026-07-06T08:00:00.000Z");
+    const affinity = state.affinity.find((item) => item.characterId === state.conversations[0].characterId)!;
+    const daytime = new Date(2026, 6, 6, 15, 0, 0).toISOString();
+    const quietNight = new Date(2026, 6, 6, 3, 0, 0).toISOString();
+    const threeDaysBefore = new Date(new Date(daytime).getTime() - 72 * 3600 * 1000).toISOString();
+    const oneHourBefore = new Date(new Date(daytime).getTime() - 1 * 3600 * 1000).toISOString();
+    const conversation = { ...state.conversations[0], lastActiveAt: threeDaysBefore };
+
+    expect(shouldReachOut(conversation, affinity, [], daytime)).toBe(true);
+    expect(shouldReachOut(conversation, affinity, [], quietNight)).toBe(false);
+    expect(shouldReachOut({ ...conversation, lastActiveAt: oneHourBefore }, affinity, [], daytime)).toBe(false);
+
+    const unread = [
+      {
+        id: "p1",
+        userId: conversation.userId,
+        characterId: conversation.characterId,
+        content: "在吗",
+        status: "sent" as const,
+        sentAt: new Date(new Date(daytime).getTime() - 3 * 3600 * 1000).toISOString(),
+        createdAt: new Date(new Date(daytime).getTime() - 3 * 3600 * 1000).toISOString()
+      }
+    ];
+    expect(shouldReachOut(conversation, affinity, unread, daytime)).toBe(false);
+  });
+
+  test("runProactiveScan + applyProactiveResults sends for silent conversations (dev fallback)", async () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const now = new Date(2026, 6, 6, 15, 0, 0).toISOString();
+    const silent = new Date(new Date(now).getTime() - 72 * 3600 * 1000).toISOString();
+    const state = {
+      ...base,
+      conversations: base.conversations.map((item) => ({ ...item, lastActiveAt: silent }))
+    };
+
+    const candidates = await runProactiveScan(state, now);
+    expect(candidates.length).toBeGreaterThan(0);
+    expect(candidates.every((candidate) => candidate.allowed)).toBe(true);
+
+    const applied = applyProactiveResults(state, candidates, now);
+    expect(applied.sent).toBe(candidates.length);
+    expect(applied.state.proactiveMessages.every((message) => message.status === "sent")).toBe(true);
+    expect(applied.state.auditLogs.some((log) => log.scene === "proactive_output" && log.action === "sent")).toBe(true);
+
+    const secondScan = await runProactiveScan(applied.state, new Date(new Date(now).getTime() + 30 * 60 * 1000).toISOString());
+    expect(secondScan).toHaveLength(0);
+  });
+
+  test("markConversationRead sets lastReadAt so unread clears", () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const conversation = base.conversations[0];
+    const withProactive = {
+      ...base,
+      proactiveMessages: [
+        {
+          id: "p1",
+          userId: conversation.userId,
+          characterId: conversation.characterId,
+          content: "想你了",
+          status: "sent" as const,
+          sentAt: "2026-07-06T12:00:00.000Z",
+          createdAt: "2026-07-06T12:00:00.000Z"
+        }
+      ]
+    };
+    const read = markConversationRead(withProactive, { conversationId: conversation.id, now: "2026-07-06T13:00:00.000Z" });
+    expect(read.conversations.find((item) => item.id === conversation.id)!.lastReadAt).toBe("2026-07-06T13:00:00.000Z");
+  });
+
+  test("deleteFact removes fact and un-supersedes orphaned older facts", () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const ctx = { userId: "u_demo", characterId: "shen-jibai", now: "2026-07-06T09:00:00.000Z" };
+    const first = mergeFacts(base.facts, [{ factType: "nickname", content: "叫我小满" }], ctx, "llm");
+    const second = mergeFacts(first.facts, [{ factType: "nickname", content: "叫我满满" }], ctx, "llm");
+    const newer = second.facts.find((fact) => !fact.supersededBy && fact.factType === "nickname")!;
+    const older = second.facts.find((fact) => fact.supersededBy === newer.id)!;
+
+    const afterDelete = deleteFact({ ...base, facts: second.facts }, newer.id);
+    expect(afterDelete.facts.some((fact) => fact.id === newer.id)).toBe(false);
+    expect(afterDelete.facts.find((fact) => fact.id === older.id)!.supersededBy).toBeUndefined();
+  });
+});
