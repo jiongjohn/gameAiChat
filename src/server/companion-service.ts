@@ -113,16 +113,25 @@ export function registerUser(
     createdAt: input.now
   };
 
-  return {
-    state: {
-      ...state,
-      users: [...state.users, user],
-      inviteCodes: state.inviteCodes.map((item) =>
-        item.code === invite.code ? { ...item, usedByUserId: user.id, usedAt: input.now } : item
-      )
-    },
-    user
+  let nextState: CompanionState = {
+    ...state,
+    users: [...state.users, user],
+    inviteCodes: state.inviteCodes.map((item) =>
+      item.code === invite.code ? { ...item, usedByUserId: user.id, usedAt: input.now } : item
+    )
   };
+
+  for (const character of nextState.characters) {
+    if (isCharacterVisibleTo(character, user.id)) {
+      nextState = activateCharacterForUser(nextState, {
+        userId: user.id,
+        characterId: character.id,
+        now: input.now
+      }).state;
+    }
+  }
+
+  return { state: nextState, user };
 }
 
 export function scopeStateForUser(state: CompanionState, userId: string): CompanionState {
