@@ -1,5 +1,5 @@
 import { characters as seedCharacters } from "@/domain/characters";
-import type { AffinityLevel, AppSettings, CharacterCard, CompanionState, ModelSettings } from "@/domain/types";
+import type { AffinityLevel, AppSettings, CharacterCard, CharacterVisibility, CompanionState, ModelSettings } from "@/domain/types";
 
 const modelProviders: ModelSettings["provider"][] = ["dev", "deepseek", "doubao", "glm", "custom"];
 const characterStringFields = [
@@ -72,7 +72,8 @@ function normalizeCharacter(character: Partial<CharacterCard> & { id: string }):
     avatarGradient: "",
     momentsPersona: "",
     affinityPrompts: defaultAffinityPrompts,
-    characterBook: []
+    characterBook: [],
+    visibility: "hidden"
   };
 
   return {
@@ -96,7 +97,9 @@ function normalizeCharacter(character: Partial<CharacterCard> & { id: string }):
       ...fallback.affinityPrompts,
       ...character.affinityPrompts
     },
-    characterBook: Array.isArray(character.characterBook) ? character.characterBook : fallback.characterBook
+    characterBook: Array.isArray(character.characterBook) ? character.characterBook : fallback.characterBook,
+    visibility: character.visibility ?? fallback.visibility ?? "public",
+    allowedUserIds: character.allowedUserIds ?? fallback.allowedUserIds
   };
 }
 
@@ -213,7 +216,9 @@ export function updateCharacterConfig(
       avatarGradient: input.avatarGradient ?? character.avatarGradient,
       momentsPersona: input.momentsPersona ?? character.momentsPersona,
       affinityPrompts: input.affinityPrompts ?? character.affinityPrompts,
-      characterBook: input.characterBook ?? character.characterBook
+      characterBook: input.characterBook ?? character.characterBook,
+      visibility: input.visibility ?? character.visibility,
+      allowedUserIds: input.allowedUserIds ?? character.allowedUserIds
     };
   });
 
@@ -276,6 +281,7 @@ function validateCharacterBook(value: unknown): boolean {
 
 export function validateAdminSettingsPatch(input: unknown): {
   character?: Parameters<typeof updateCharacterConfig>[1];
+  newCharacter?: { name: string; tagline?: string };
   model?: Partial<ModelSettings>;
   modelTarget?: keyof AppSettings["models"];
 } {
@@ -285,9 +291,26 @@ export function validateAdminSettingsPatch(input: unknown): {
 
   const result: {
     character?: Parameters<typeof updateCharacterConfig>[1];
+    newCharacter?: { name: string; tagline?: string };
     model?: Partial<ModelSettings>;
     modelTarget?: keyof AppSettings["models"];
   } = {};
+
+  if ("newCharacter" in input) {
+    if (!isRecord(input.newCharacter)) {
+      throw new Error("newCharacter must be an object.");
+    }
+    if (typeof input.newCharacter.name !== "string" || input.newCharacter.name.trim() === "") {
+      throw new Error("newCharacter.name is required.");
+    }
+    if ("tagline" in input.newCharacter && typeof input.newCharacter.tagline !== "string") {
+      throw new Error("newCharacter.tagline must be a string.");
+    }
+    result.newCharacter = {
+      name: input.newCharacter.name,
+      tagline: typeof input.newCharacter.tagline === "string" ? input.newCharacter.tagline : undefined
+    };
+  }
 
   if ("character" in input) {
     if (!isRecord(input.character)) {
@@ -319,6 +342,22 @@ export function validateAdminSettingsPatch(input: unknown): {
         throw new Error("character.characterBook must contain keyword, content and priority entries.");
       }
       character.characterBook = input.character.characterBook;
+    }
+    if ("visibility" in input.character) {
+      const allowed: CharacterVisibility[] = ["public", "hidden", "restricted"];
+      if (!allowed.includes(input.character.visibility as CharacterVisibility)) {
+        throw new Error("character.visibility is invalid.");
+      }
+      character.visibility = input.character.visibility;
+    }
+    if ("allowedUserIds" in input.character) {
+      if (
+        !Array.isArray(input.character.allowedUserIds) ||
+        !input.character.allowedUserIds.every((entry) => typeof entry === "string")
+      ) {
+        throw new Error("character.allowedUserIds must be an array of strings.");
+      }
+      character.allowedUserIds = input.character.allowedUserIds;
     }
     result.character = character as Parameters<typeof updateCharacterConfig>[1];
   }
@@ -376,7 +415,7 @@ export function validateAdminSettingsPatch(input: unknown): {
     result.modelTarget = modelTarget;
   }
 
-  if (!result.character && !result.model) {
+  if (!result.character && !result.model && !result.newCharacter) {
     throw new Error("Request body must include character or model settings.");
   }
 

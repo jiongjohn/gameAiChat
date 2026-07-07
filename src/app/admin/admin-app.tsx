@@ -3,7 +3,7 @@
 import { Brain, MessageSquare, PlugZap, Plus, Save, ServerCog, ShieldCheck, Sparkles, Trash2, UserCog } from "lucide-react";
 import Link from "next/link";
 import { FormEvent, useState } from "react";
-import type { AffinityLevel, CharacterCard, CompanionState, Fact, ModelSettings } from "@/domain/types";
+import type { AffinityLevel, CharacterCard, CharacterVisibility, CompanionState, Fact, ModelSettings } from "@/domain/types";
 import { applyModelPreset, getModelPreset } from "../model-presets";
 
 const factTypeLabels: Record<Fact["factType"], string> = {
@@ -92,6 +92,7 @@ export default function AdminApp({
   const [characterDraft, setCharacterDraft] = useState<CharacterCard>(initialState.characters[0]);
   const [modelDrafts, setModelDrafts] = useState<Record<ModelTarget, ModelSettings>>(initialState.settings.models);
   const [saving, setSaving] = useState(false);
+  const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
   const [testingTarget, setTestingTarget] = useState<ModelTarget | null>(null);
   const [testResults, setTestResults] = useState<Partial<Record<ModelTarget, ModelTestResult>>>({});
@@ -141,6 +142,18 @@ export default function AdminApp({
 
   function patchCharacter(field: keyof CharacterCard, value: string) {
     setCharacterDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function patchVisibility(value: CharacterVisibility) {
+    setCharacterDraft((current) => ({ ...current, visibility: value }));
+  }
+
+  function patchAllowedUserIds(value: string) {
+    const ids = value
+      .split(/[,，]/)
+      .map((entry) => entry.trim())
+      .filter((entry) => entry.length > 0);
+    setCharacterDraft((current) => ({ ...current, allowedUserIds: ids }));
   }
 
   function patchAffinityPrompt(level: AffinityLevel, value: string) {
@@ -199,6 +212,44 @@ export default function AdminApp({
       setNotice(error instanceof Error ? error.message : "保存失败");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function createCharacter() {
+    const name = window.prompt("新角色名称");
+    if (name === null) {
+      return;
+    }
+    if (!name.trim()) {
+      setNotice("角色名不能为空");
+      return;
+    }
+    setCreating(true);
+    setNotice("");
+    try {
+      const response = await fetch("/api/admin/settings", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ newCharacter: { name: name.trim() } })
+      });
+      if (!response.ok) {
+        const detail = (await response.json().catch(() => ({}))) as { error?: string };
+        throw new Error(detail.error ?? `创建失败：HTTP ${response.status}`);
+      }
+      const next = (await response.json()) as CompanionState;
+      setState(next);
+      const created = next.characters[next.characters.length - 1];
+      if (created) {
+        setActiveCharacterId(created.id);
+        setCharacterDraft(created);
+        setCharacterTestReply(null);
+        setCharacterTestError(null);
+      }
+      setNotice(`已创建角色「${created?.name ?? name.trim()}」，请完善设定后保存`);
+    } catch (error) {
+      setNotice(error instanceof Error ? error.message : "创建失败");
+    } finally {
+      setCreating(false);
     }
   }
 
@@ -373,6 +424,15 @@ export default function AdminApp({
             <header>
               <UserCog size={20} />
               <h2>角色列表</h2>
+              <button
+                className="adminAddCharacter"
+                disabled={creating}
+                onClick={createCharacter}
+                type="button"
+              >
+                <Plus size={16} />
+                {creating ? "创建中…" : "新增角色"}
+              </button>
             </header>
             <div className="adminCharacterCards">
               {state.characters.map((character) => (
@@ -493,6 +553,32 @@ export default function AdminApp({
                 onChange={(event) => patchCharacter("momentsPersona", event.target.value)}
               />
             </label>
+
+            <label>
+              可见范围
+              <select
+                id={fieldId("character-visibility")}
+                name="visibility"
+                value={characterDraft.visibility ?? "public"}
+                onChange={(event) => patchVisibility(event.target.value as CharacterVisibility)}
+              >
+                <option value="public">所有人可见</option>
+                <option value="restricted">仅指定用户可见</option>
+                <option value="hidden">隐藏（仅后台）</option>
+              </select>
+            </label>
+            {characterDraft.visibility === "restricted" ? (
+              <label>
+                白名单用户 ID（逗号分隔）
+                <input
+                  id={fieldId("character-allowed-users")}
+                  name="allowedUserIds"
+                  placeholder="u_demo, u_xxx"
+                  value={(characterDraft.allowedUserIds ?? []).join(", ")}
+                  onChange={(event) => patchAllowedUserIds(event.target.value)}
+                />
+              </label>
+            ) : null}
 
             <fieldset className="affinityEditor">
               <legend>好感度分级 Prompt</legend>

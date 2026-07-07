@@ -2,18 +2,22 @@ import { describe, expect, test } from "vitest";
 import { characters } from "@/domain/characters";
 import { mergeFacts } from "@/domain/memory";
 import {
+  activateCharacterForUser,
   applyProactiveResults,
+  createCharacterForState,
   createInitialState,
   createMomentForUser,
   createProactiveForUser,
   deleteFact,
   handleChatTurn,
   handleMomentComment,
+  isCharacterActivated,
   markConversationRead,
   runProactiveScan,
   shouldReachOut,
   toggleMomentLike
 } from "./companion-service";
+import { updateCharacterConfig } from "./admin-service";
 
 function seedWithMoment(now = "2026-07-06T12:00:00.000Z") {
   const base = createMomentForUser(createInitialState("2026-07-06T08:00:00.000Z"), {
@@ -209,6 +213,92 @@ describe("companion service", () => {
     };
     const read = markConversationRead(withProactive, { conversationId: conversation.id, now: "2026-07-06T13:00:00.000Z" });
     expect(read.conversations.find((item) => item.id === conversation.id)!.lastReadAt).toBe("2026-07-06T13:00:00.000Z");
+  });
+
+  test("createCharacterForState appends a hidden character without activating it", () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const { state, character } = createCharacterForState(base, {
+      name: "林深",
+      now: "2026-07-06T09:00:00.000Z"
+    });
+
+    expect(state.characters.some((item) => item.id === character.id)).toBe(true);
+    expect(character.visibility).toBe("hidden");
+    expect(state.conversations.some((item) => item.characterId === character.id)).toBe(false);
+    expect(state.affinity.some((item) => item.characterId === character.id)).toBe(false);
+    expect(isCharacterActivated(state, "u_demo", character.id)).toBe(false);
+  });
+
+  test("activateCharacterForUser wires conversation, affinity, first message and is chattable", async () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const created = createCharacterForState(base, { name: "林深", now: "2026-07-06T09:00:00.000Z" });
+    const visible = updateCharacterConfig(created.state, {
+      characterId: created.character.id,
+      visibility: "public"
+    });
+
+    const activated = activateCharacterForUser(visible, {
+      userId: "u_demo",
+      characterId: created.character.id,
+      now: "2026-07-06T09:01:00.000Z"
+    });
+    expect(activated.alreadyActive).toBe(false);
+    expect(isCharacterActivated(activated.state, "u_demo", created.character.id)).toBe(true);
+    expect(activated.state.affinity.find((item) => item.characterId === created.character.id)?.level).toBe("初识");
+    expect(
+      activated.state.messages.some(
+        (item) => item.conversationId === activated.conversationId && item.role === "assistant"
+      )
+    ).toBe(true);
+
+    const result = await handleChatTurn(activated.state, {
+      conversationId: activated.conversationId,
+      content: "你好呀",
+      now: "2026-07-06T09:05:00.000Z"
+    });
+    expect(result.allowed).toBe(true);
+    expect(result.reply.length).toBeGreaterThan(0);
+  });
+
+  test("activateCharacterForUser is idempotent and gated by visibility", () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const created = createCharacterForState(base, { name: "夜岚", now: "2026-07-06T09:00:00.000Z" });
+
+    expect(() =>
+      activateCharacterForUser(created.state, {
+        userId: "u_demo",
+        characterId: created.character.id,
+        now: "2026-07-06T09:01:00.000Z"
+      })
+    ).toThrow();
+
+    const visible = updateCharacterConfig(created.state, {
+      characterId: created.character.id,
+      visibility: "restricted",
+      allowedUserIds: ["u_demo"]
+    });
+    const first = activateCharacterForUser(visible, {
+      userId: "u_demo",
+      characterId: created.character.id,
+      now: "2026-07-06T09:02:00.000Z"
+    });
+    const second = activateCharacterForUser(first.state, {
+      userId: "u_demo",
+      characterId: created.character.id,
+      now: "2026-07-06T09:03:00.000Z"
+    });
+    expect(second.alreadyActive).toBe(true);
+    expect(second.conversationId).toBe(first.conversationId);
+    expect(
+      second.state.conversations.filter((item) => item.characterId === created.character.id)
+    ).toHaveLength(1);
+  });
+
+  test("createCharacterForState avoids id collisions", () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const first = createCharacterForState(base, { name: "Aria", now: "2026-07-06T09:00:00.000Z" });
+    const second = createCharacterForState(first.state, { name: "Aria", now: "2026-07-06T09:01:00.000Z" });
+    expect(first.character.id).not.toBe(second.character.id);
   });
 
   test("deleteFact removes fact and un-supersedes orphaned older facts", () => {

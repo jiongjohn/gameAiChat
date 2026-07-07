@@ -2,6 +2,7 @@ export type MessageRole = "user" | "assistant" | "system";
 export type MessageStatus = "generating" | "reviewing" | "completed" | "blocked" | "failed";
 export type AffinityLevel = "初识" | "熟悉" | "心动" | "暧昧" | "热恋";
 export type MomentStatus = "draft" | "approved" | "published" | "blocked";
+export type CharacterVisibility = "public" | "hidden" | "restricted";
 
 export interface UserProfile {
   id: string;
@@ -33,6 +34,8 @@ export interface CharacterCard {
     content: string;
     priority: number;
   }>;
+  visibility: CharacterVisibility;
+  allowedUserIds?: string[];
 }
 
 export interface Conversation {

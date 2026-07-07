@@ -1,6 +1,6 @@
 import { buildPrompt } from "@/domain/agent";
 import { calculateAffinity } from "@/domain/affinity";
-import { characters } from "@/domain/characters";
+import { characters, isCharacterVisibleTo } from "@/domain/characters";
 import { mergeFacts, retrieveFacts } from "@/domain/memory";
 import { generateMoment, generateProactiveMessage } from "@/domain/moments";
 import { maskUnsafeOutput, moderateInput } from "@/domain/safety";
@@ -51,6 +51,129 @@ export function getStateCharacter(state: CompanionState, characterId: string): C
     throw new Error(`Unknown character: ${characterId}`);
   }
   return character;
+}
+
+const defaultAffinityPrompts: Record<AffinityLevel, string> = {
+  "初识": "保持礼貌距离，语气克制，更多观察与确认。",
+  "熟悉": "可以自然关心用户，记住称呼和偏好。",
+  "心动": "偶尔流露在意，但不直白索取回应。",
+  "暧昧": "语气更贴近，允许轻微暧昧和专属称呼。",
+  "热恋": "稳定、亲密、专一，主动表达陪伴感。"
+};
+
+function slugifyCharacterId(name: string, taken: Set<string>): string {
+  const base =
+    name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9\u4e00-\u9fa5]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "role";
+  const encoded = /[a-z0-9-]+/.test(base) && !/[\u4e00-\u9fa5]/.test(base) ? base : `role-${id("").slice(1)}`;
+  let candidate = encoded;
+  let suffix = 2;
+  while (taken.has(candidate)) {
+    candidate = `${encoded}-${suffix}`;
+    suffix += 1;
+  }
+  return candidate;
+}
+
+export function createCharacterForState(
+  state: CompanionState,
+  input: { name: string; tagline?: string; now: string }
+): { state: CompanionState; character: CharacterCard } {
+  const name = input.name.trim();
+  if (!name) {
+    throw new Error("Character name is required.");
+  }
+  const taken = new Set(state.characters.map((item) => item.id));
+  const characterId = slugifyCharacterId(name, taken);
+  const tagline = input.tagline?.trim() || "新的陪伴角色";
+
+  const character: CharacterCard = {
+    id: characterId,
+    name,
+    tagline,
+    imageUrl: "",
+    personalityType: "克制守护",
+    modelId: "default",
+    description: "",
+    personality: "",
+    scenario: "",
+    firstMessage: `你好，我是${name}。很高兴认识你。`,
+    messageExample: "",
+    postHistoryInstructions: "不要脱离角色。回复要像真实私聊，短句为主，避免解释设定，避免自称 AI。",
+    voiceId: "",
+    avatarGradient: "linear-gradient(145deg, #4b3f6b, #c76b98)",
+    momentsPersona: "像一个真实的人分享生活片段，动态具体、有画面。",
+    affinityPrompts: { ...defaultAffinityPrompts },
+    characterBook: [],
+    visibility: "hidden"
+  };
+
+  return {
+    state: {
+      ...state,
+      characters: [...state.characters, character]
+    },
+    character
+  };
+}
+
+export function isCharacterActivated(state: CompanionState, userId: string, characterId: string): boolean {
+  return state.conversations.some((item) => item.userId === userId && item.characterId === characterId);
+}
+
+export function activateCharacterForUser(
+  state: CompanionState,
+  input: { userId: string; characterId: string; now: string }
+): { state: CompanionState; conversationId: string; alreadyActive: boolean } {
+  const character = getStateCharacter(state, input.characterId);
+  if (!isCharacterVisibleTo(character, input.userId)) {
+    throw new Error("Character is not available to this user.");
+  }
+  const existing = state.conversations.find(
+    (item) => item.userId === input.userId && item.characterId === input.characterId
+  );
+  if (existing) {
+    return { state, conversationId: existing.id, alreadyActive: true };
+  }
+
+  const conversation: Conversation = {
+    id: `conv_${input.characterId}_${input.userId}`,
+    userId: input.userId,
+    characterId: input.characterId,
+    summary: "刚开始认识，还没有形成长期摘要。",
+    summaryTurn: 0,
+    turnCount: 0,
+    lastActiveAt: input.now
+  };
+  const firstMessage: Message = {
+    id: id("msg"),
+    conversationId: conversation.id,
+    role: "assistant",
+    content: character.firstMessage,
+    status: "completed",
+    createdAt: input.now
+  };
+  const affinity: AffinityRecord = {
+    userId: input.userId,
+    characterId: input.characterId,
+    score: 0,
+    level: "初识",
+    updatedAt: input.now
+  };
+
+  return {
+    state: {
+      ...state,
+      conversations: [...state.conversations, conversation],
+      messages: [...state.messages, firstMessage],
+      affinity: [...state.affinity, affinity]
+    },
+    conversationId: conversation.id,
+    alreadyActive: false
+  };
 }
 
 export function createInitialState(now = new Date().toISOString()): CompanionState {

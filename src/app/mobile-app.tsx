@@ -20,7 +20,13 @@ import { FormEvent, useEffect, useMemo, useState } from "react";
 import type { AffinityRecord, CharacterCard, CompanionState, Fact, Message } from "@/domain/types";
 import { streamChatMessage } from "./chat-stream";
 import { loadCompanionState } from "./client-state";
-import { buildChatThreads, buildMomentFeed, type ChatThread, type MomentFeedItem } from "./mobile-view-model";
+import {
+  buildAddableContacts,
+  buildChatThreads,
+  buildMomentFeed,
+  type ChatThread,
+  type MomentFeedItem
+} from "./mobile-view-model";
 
 type MainTab = "chats" | "moments" | "me";
 
@@ -145,15 +151,24 @@ function TopBar({
 function ChatList({
   threads,
   onOpen,
-  onGenerateMoment
+  onGenerateMoment,
+  onAddContact
 }: {
   threads: ChatThread[];
   onOpen: (characterId: string) => void;
   onGenerateMoment: () => void;
+  onAddContact: () => void;
 }) {
   return (
     <section className="wxScreen">
-      <TopBar title="消息" right={<Plus size={22} />} />
+      <TopBar
+        title="消息"
+        right={
+          <button className="iconButton" type="button" title="加联系人" onClick={onAddContact}>
+            <Plus size={22} />
+          </button>
+        }
+      />
       <div className="wxSearch">
         <Search size={16} />
         <span>搜索角色、聊天记录</span>
@@ -194,6 +209,56 @@ function ChatList({
         <span>生成一条当前角色朋友圈</span>
       </button>
     </section>
+  );
+}
+
+function AddContactSheet({
+  contacts,
+  busy,
+  onAdd,
+  onClose
+}: {
+  contacts: CharacterCard[];
+  busy: boolean;
+  onAdd: (characterId: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="wxSheetMask" role="presentation" onClick={onClose}>
+      <section className="wxSheet" role="dialog" aria-label="加联系人" onClick={(event) => event.stopPropagation()}>
+        <header className="wxSheetHeader">
+          <strong>加联系人</strong>
+          <button className="iconButton" type="button" title="关闭" onClick={onClose}>
+            <ChevronLeft size={22} />
+          </button>
+        </header>
+        {contacts.length === 0 ? (
+          <p className="wxSheetEmpty">暂时没有可添加的角色</p>
+        ) : (
+          <div className="wxList">
+            {contacts.map((character) => (
+              <button
+                className="wxThread"
+                key={character.id}
+                type="button"
+                disabled={busy}
+                onClick={() => onAdd(character.id)}
+              >
+                <Avatar character={character} />
+                <span className="wxThreadBody">
+                  <span className="wxThreadLine">
+                    <strong>{character.name}</strong>
+                  </span>
+                  <span className="wxThreadLine">
+                    <small>{character.tagline}</small>
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+        )}
+      </section>
+    </div>
   );
 }
 
@@ -514,8 +579,10 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
   const [busy, setBusy] = useState(false);
   const [streamingReply, setStreamingReply] = useState<string | null>(null);
   const [chatError, setChatError] = useState<string | null>(null);
+  const [addContactOpen, setAddContactOpen] = useState(false);
   const active = useActiveContext(state, activeCharacterId);
   const threads = state ? buildChatThreads(state, state.users[0].id) : [];
+  const addableContacts = state ? buildAddableContacts(state, state.users[0].id) : [];
 
   useEffect(() => {
     setActiveCharacterId(initialState.characters[0]?.id ?? "shen-jibai");
@@ -535,6 +602,30 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
       alive = false;
     };
   }, [initialState]);
+
+  async function addContact(characterId: string) {
+    if (busy) {
+      return;
+    }
+    setBusy(true);
+    try {
+      const response = await fetch("/api/contacts", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ characterId })
+      });
+      if (!response.ok) {
+        return;
+      }
+      const payload = (await response.json()) as { state: CompanionState };
+      setState(payload.state);
+      setAddContactOpen(false);
+      setActiveCharacterId(characterId);
+      setRoomOpen(true);
+    } finally {
+      setBusy(false);
+    }
+  }
 
   function openRoom(characterId: string) {
     setActiveCharacterId(characterId);
@@ -714,7 +805,21 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
         ) : null}
 
         {activeTab === "chats" && !roomOpen ? (
-          <ChatList threads={threads} onOpen={openRoom} onGenerateMoment={triggerMoment} />
+          <ChatList
+            threads={threads}
+            onOpen={openRoom}
+            onGenerateMoment={triggerMoment}
+            onAddContact={() => setAddContactOpen(true)}
+          />
+        ) : null}
+
+        {addContactOpen ? (
+          <AddContactSheet
+            contacts={addableContacts}
+            busy={busy}
+            onAdd={addContact}
+            onClose={() => setAddContactOpen(false)}
+          />
         ) : null}
 
         {activeTab === "moments" ? (

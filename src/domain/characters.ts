@@ -34,7 +34,8 @@ export const characters: CharacterCard[] = [
         content: "沈既白常去研究所楼下的咖啡店，偏好少糖热拿铁。",
         priority: 8
       }
-    ]
+    ],
+    visibility: "public"
   },
   {
     id: "lu-yeyan",
@@ -64,7 +65,8 @@ export const characters: CharacterCard[] = [
         content: "陆野言正在写一首没有命名的新歌，副歌灵感来自用户。",
         priority: 10
       }
-    ]
+    ],
+    visibility: "public"
   }
 ];
 
@@ -74,4 +76,14 @@ export function getCharacter(characterId: string): CharacterCard {
     throw new Error(`Unknown character: ${characterId}`);
   }
   return character;
+}
+
+export function isCharacterVisibleTo(character: CharacterCard, userId: string): boolean {
+  if (character.visibility === "hidden") {
+    return false;
+  }
+  if (character.visibility === "restricted") {
+    return (character.allowedUserIds ?? []).includes(userId);
+  }
+  return true;
 }

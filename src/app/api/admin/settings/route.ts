@@ -4,6 +4,7 @@ import {
   updateModelSettings,
   validateAdminSettingsPatch
 } from "@/server/admin-service";
+import { createCharacterForState } from "@/server/companion-service";
 import { companionStore } from "@/server/store";
 
 export const dynamic = "force-dynamic";
@@ -26,14 +27,18 @@ export async function PATCH(request: Request) {
   }
 
   try {
+    const now = new Date().toISOString();
     const state = await companionStore.update((current) => {
       let next = current;
+      if (body.newCharacter) {
+        next = createCharacterForState(next, { ...body.newCharacter, now }).state;
+      }
       if (body.character) {
         next = updateCharacterConfig(next, body.character);
       }
-    if (body.model) {
+      if (body.model) {
         next = updateModelSettings(next, body.model, body.modelTarget);
-    }
+      }
       return next;
     });
 

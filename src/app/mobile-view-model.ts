@@ -1,3 +1,4 @@
+import { isCharacterVisibleTo } from "@/domain/characters";
 import type {
   CharacterCard,
   CompanionState,
@@ -49,6 +50,15 @@ export function buildChatThreads(state: CompanionState, userId: string): ChatThr
       const bTime = b.latestProactive?.sentAt ?? b.latestMessage?.createdAt ?? b.conversation.lastActiveAt;
       return bTime.localeCompare(aTime);
     });
+}
+
+export function buildAddableContacts(state: CompanionState, userId: string): CharacterCard[] {
+  const activated = new Set(
+    state.conversations.filter((item) => item.userId === userId).map((item) => item.characterId)
+  );
+  return state.characters.filter(
+    (character) => isCharacterVisibleTo(character, userId) && !activated.has(character.id)
+  );
 }
 
 export function buildMomentFeed(state: CompanionState, userId: string): MomentFeedItem[] {
