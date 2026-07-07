@@ -5,6 +5,7 @@ import {
   Camera,
   ChevronLeft,
   Heart,
+  LogOut,
   MessageCircle,
   Mic2,
   MoreHorizontal,
@@ -44,15 +45,21 @@ function formatClock(iso?: string) {
 
 function useActiveContext(state: CompanionState | null, activeCharacterId: string) {
   return useMemo(() => {
-    if (!state) {
+    if (!state || state.users.length === 0) {
       return null;
     }
     const user = state.users[0];
-    const character = state.characters.find((item) => item.id === activeCharacterId) ?? state.characters[0];
-    const conversation = state.conversations.find(
+    const activeConversations = state.conversations.filter((item) => item.userId === user.id);
+    if (activeConversations.length === 0) {
+      return null;
+    }
+    const conversation =
+      activeConversations.find((item) => item.characterId === activeCharacterId) ?? activeConversations[0];
+    const character =
+      state.characters.find((item) => item.id === conversation.characterId) ?? state.characters[0];
+    const affinity = state.affinity.find(
       (item) => item.userId === user.id && item.characterId === character.id
-    )!;
-    const affinity = state.affinity.find((item) => item.userId === user.id && item.characterId === character.id)!;
+    ) ?? { userId: user.id, characterId: character.id, score: 0, level: "初识" as const, updatedAt: conversation.lastActiveAt };
     const messages = state.messages.filter((message) => message.conversationId === conversation.id);
     const facts = state.facts.filter((fact) => fact.userId === user.id && fact.characterId === character.id);
     const proactive = state.proactiveMessages.filter(
@@ -490,13 +497,15 @@ function MeScreen({
   characters,
   activeCharacterId,
   onSelectCharacter,
-  onProactive
+  onProactive,
+  onLogout
 }: {
   active: NonNullable<ReturnType<typeof useActiveContext>>;
   characters: CharacterCard[];
   activeCharacterId: string;
   onSelectCharacter: (id: string) => void;
   onProactive: () => void;
+  onLogout: () => void;
 }) {
   return (
     <section className="wxScreen meScreen">
@@ -537,6 +546,34 @@ function MeScreen({
       <button className="wxQuickAction" type="button" onClick={onProactive}>
         <Bell size={18} />
         <span>触发一条主动消息</span>
+      </button>
+      <button className="wxQuickAction logout" type="button" onClick={onLogout}>
+        <LogOut size={18} />
+        <span>退出登录</span>
+      </button>
+    </section>
+  );
+}
+
+function MeEmptyScreen({ nickname, onLogout }: { nickname: string; onLogout: () => void }) {
+  return (
+    <section className="wxScreen meScreen">
+      <TopBar title="我的" right={<Settings size={21} />} />
+      <div className="meProfile">
+        <span className="avatar avatar-lg" style={{ background: "linear-gradient(145deg, #5e4a67, #c95d63)" }}>
+          {nickname.slice(0, 1)}
+        </span>
+        <div>
+          <strong>{nickname}</strong>
+          <span>还没有添加任何角色</span>
+        </div>
+      </div>
+      <section className="meBlock">
+        <p className="memoryEmpty">去「聊天」页点右上角「加联系人」，选一个角色开始你的陪伴旅程。</p>
+      </section>
+      <button className="wxQuickAction logout" type="button" onClick={onLogout}>
+        <LogOut size={18} />
+        <span>退出登录</span>
       </button>
     </section>
   );
@@ -595,6 +632,8 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
         setState(result.state);
         setLoadError(null);
         setActiveCharacterId(result.state.characters[0]?.id ?? "shen-jibai");
+      } else if (result.unauthorized) {
+        window.location.href = "/login";
       }
     });
 
@@ -602,6 +641,11 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
       alive = false;
     };
   }, [initialState]);
+
+  async function logout() {
+    await fetch("/api/auth/logout", { method: "POST" }).catch(() => undefined);
+    window.location.href = "/login";
+  }
 
   async function addContact(characterId: string) {
     if (busy) {
@@ -776,7 +820,7 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
     );
   }
 
-  if (!state || !active) {
+  if (!state) {
     return (
       <main className="phoneStage">
         <section className="wxApp loading">
@@ -787,10 +831,12 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
     );
   }
 
+  const currentUser = state.users[0];
+
   return (
     <main className="phoneStage">
       <div className="wxApp">
-        {activeTab === "chats" && roomOpen ? (
+        {activeTab === "chats" && roomOpen && active ? (
           <ChatRoom
             active={active}
             draft={draft}
@@ -804,7 +850,7 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
           />
         ) : null}
 
-        {activeTab === "chats" && !roomOpen ? (
+        {activeTab === "chats" && !(roomOpen && active) ? (
           <ChatList
             threads={threads}
             onOpen={openRoom}
@@ -825,7 +871,7 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
         {activeTab === "moments" ? (
           <MomentsScreen
             state={state}
-            userId={active.user.id}
+            userId={currentUser.id}
             busy={busy}
             onGenerateMoment={triggerMoment}
             onLike={likeMoment}
@@ -834,13 +880,18 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
         ) : null}
 
         {activeTab === "me" ? (
-          <MeScreen
-            active={active}
-            characters={state.characters}
-            activeCharacterId={activeCharacterId}
-            onSelectCharacter={setActiveCharacterId}
-            onProactive={triggerProactive}
-          />
+          active ? (
+            <MeScreen
+              active={active}
+              characters={state.characters}
+              activeCharacterId={activeCharacterId}
+              onSelectCharacter={setActiveCharacterId}
+              onProactive={triggerProactive}
+              onLogout={logout}
+            />
+          ) : (
+            <MeEmptyScreen nickname={currentUser.nickname} onLogout={logout} />
+          )
         ) : null}
 
         {!roomOpen ? <TabBar activeTab={activeTab} onTab={setActiveTab} /> : null}

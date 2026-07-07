@@ -15,6 +15,9 @@ function stateWith(messages: Message[]): CompanionState {
     users: [
       {
         id: userId,
+        username: "demo",
+        passwordHash: "",
+        passwordSalt: "",
         nickname: "小满",
         minorMode: false,
         ttsEnabled: false,
@@ -90,7 +93,8 @@ function stateWith(messages: Message[]): CompanionState {
     momentComments: [],
     momentLikes: [],
     proactiveMessages: [],
-    auditLogs: []
+    auditLogs: [],
+    inviteCodes: []
   };
 }
 

@@ -1580,3 +1580,154 @@ button {
     display: none;
   }
 }
+
+.authScreen {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  padding: 48px 28px;
+  width: 100%;
+  max-width: 420px;
+  margin: 0 auto;
+}
+
+.authScreen h1 {
+  font-size: 26px;
+  margin: 0;
+}
+
+.authSubtitle {
+  color: #8a7d78;
+  margin: 0 0 12px;
+}
+
+.authForm {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.authForm label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 14px;
+  color: #6a5d58;
+}
+
+.authForm input {
+  padding: 12px 14px;
+  border: 1px solid #e2d6cf;
+  border-radius: 12px;
+  font-size: 16px;
+  background: #fff;
+}
+
+.authForm button {
+  margin-top: 8px;
+  padding: 13px;
+  border: none;
+  border-radius: 12px;
+  background: linear-gradient(135deg, #c95d63, #a8506f);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.authForm button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.authError {
+  color: #c0392b;
+  font-size: 14px;
+  margin: 0;
+}
+
+.authSwitch {
+  text-align: center;
+  color: #8a7d78;
+  font-size: 14px;
+}
+
+.authSwitch a {
+  color: #c95d63;
+  font-weight: 600;
+}
+
+.wxSheetMask {
+  position: absolute;
+  inset: 0;
+  background: rgba(20, 12, 16, 0.35);
+  display: flex;
+  align-items: flex-end;
+  z-index: 40;
+}
+
+.wxSheet {
+  width: 100%;
+  max-height: 72%;
+  background: #f7f2ef;
+  border-radius: 18px 18px 0 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.wxSheetHeader {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid #eaded7;
+}
+
+.wxSheetHeader strong {
+  font-size: 16px;
+}
+
+.wxSheet .wxList {
+  overflow-y: auto;
+}
+
+.wxSheetEmpty {
+  padding: 32px;
+  text-align: center;
+  color: #8a7d78;
+}
+
+.wxQuickAction.logout {
+  color: #c0392b;
+}
+
+.invitePanel .inviteList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.inviteItem {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border: 1px solid #e2d6cf;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.inviteItem code {
+  font-size: 16px;
+  letter-spacing: 1px;
+  font-weight: 600;
+}
+
+.inviteItem.used {
+  opacity: 0.5;
+}
+
+.inviteItem.used code {
+  text-decoration: line-through;
+}

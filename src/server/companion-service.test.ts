@@ -4,8 +4,10 @@ import { mergeFacts } from "@/domain/memory";
 import {
   activateCharacterForUser,
   applyProactiveResults,
+  authenticateUser,
   createCharacterForState,
   createInitialState,
+  createInviteCode,
   createMomentForUser,
   createProactiveForUser,
   deleteFact,
@@ -13,7 +15,9 @@ import {
   handleMomentComment,
   isCharacterActivated,
   markConversationRead,
+  registerUser,
   runProactiveScan,
+  scopeStateForUser,
   shouldReachOut,
   toggleMomentLike
 } from "./companion-service";
@@ -292,6 +296,87 @@ describe("companion service", () => {
     expect(
       second.state.conversations.filter((item) => item.characterId === created.character.id)
     ).toHaveLength(1);
+  });
+
+  test("registerUser requires a valid unused invite code and authenticates", () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const withInvite = createInviteCode(base, "2026-07-06T08:05:00.000Z");
+
+    expect(() =>
+      registerUser(withInvite.state, {
+        inviteCode: "BADCODE",
+        username: "alice",
+        password: "secret123",
+        now: "2026-07-06T09:00:00.000Z"
+      })
+    ).toThrow();
+
+    const registered = registerUser(withInvite.state, {
+      inviteCode: withInvite.code,
+      username: "alice",
+      password: "secret123",
+      now: "2026-07-06T09:00:00.000Z"
+    });
+    expect(registered.user.username).toBe("alice");
+    expect(registered.user.id).not.toBe("u_demo");
+    expect(authenticateUser(registered.state, "alice", "secret123")?.id).toBe(registered.user.id);
+    expect(authenticateUser(registered.state, "alice", "wrong")).toBeNull();
+
+    expect(() =>
+      registerUser(registered.state, {
+        inviteCode: withInvite.code,
+        username: "bob",
+        password: "secret123",
+        now: "2026-07-06T09:05:00.000Z"
+      })
+    ).toThrow();
+  });
+
+  test("registerUser rejects duplicate username", () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const invite1 = createInviteCode(base, "2026-07-06T08:05:00.000Z");
+    const invite2 = createInviteCode(invite1.state, "2026-07-06T08:06:00.000Z");
+    const first = registerUser(invite2.state, {
+      inviteCode: invite1.code,
+      username: "sameName",
+      password: "secret123",
+      now: "2026-07-06T09:00:00.000Z"
+    });
+    expect(() =>
+      registerUser(first.state, {
+        inviteCode: invite2.code,
+        username: "sameName",
+        password: "secret123",
+        now: "2026-07-06T09:01:00.000Z"
+      })
+    ).toThrow();
+  });
+
+  test("scopeStateForUser isolates one user's data from another", () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const invite = createInviteCode(base, "2026-07-06T08:05:00.000Z");
+    const registered = registerUser(invite.state, {
+      inviteCode: invite.code,
+      username: "alice",
+      password: "secret123",
+      now: "2026-07-06T09:00:00.000Z"
+    });
+    const publicChar = registered.state.characters[0].id;
+    const activated = activateCharacterForUser(registered.state, {
+      userId: registered.user.id,
+      characterId: publicChar,
+      now: "2026-07-06T09:01:00.000Z"
+    });
+
+    const demoScope = scopeStateForUser(activated.state, "u_demo");
+    const aliceScope = scopeStateForUser(activated.state, registered.user.id);
+
+    expect(demoScope.conversations.every((item) => item.userId === "u_demo")).toBe(true);
+    expect(aliceScope.conversations.every((item) => item.userId === registered.user.id)).toBe(true);
+    expect(demoScope.conversations.some((item) => item.userId === registered.user.id)).toBe(false);
+    expect(aliceScope.users).toHaveLength(1);
+    expect(aliceScope.users[0].id).toBe(registered.user.id);
+    expect(aliceScope.inviteCodes).toHaveLength(0);
   });
 
   test("createCharacterForState avoids id collisions", () => {

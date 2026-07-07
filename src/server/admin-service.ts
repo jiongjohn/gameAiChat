@@ -1,5 +1,6 @@
+import { hashPassword } from "@/domain/auth";
 import { characters as seedCharacters } from "@/domain/characters";
-import type { AffinityLevel, AppSettings, CharacterCard, CharacterVisibility, CompanionState, ModelSettings } from "@/domain/types";
+import type { AffinityLevel, AppSettings, CharacterCard, CharacterVisibility, CompanionState, ModelSettings, UserProfile } from "@/domain/types";
 
 const modelProviders: ModelSettings["provider"][] = ["dev", "deepseek", "doubao", "glm", "custom"];
 const characterStringFields = [
@@ -150,9 +151,24 @@ function normalizeSettings(settings?: Partial<AppSettings>): AppSettings {
   };
 }
 
+function normalizeUser(user: UserProfile): UserProfile {
+  if (user.username && user.passwordHash && user.passwordSalt) {
+    return user;
+  }
+  const username = user.username || (user.id === "u_demo" ? "demo" : user.id);
+  const legacy = hashPassword("companion123");
+  return {
+    ...user,
+    username,
+    passwordHash: user.passwordHash || legacy.hash,
+    passwordSalt: user.passwordSalt || legacy.salt
+  };
+}
+
 export function normalizeState(state: CompanionState): CompanionState {
   return {
     ...state,
+    users: (state.users ?? []).map(normalizeUser),
     characters: (state.characters ?? []).map(normalizeCharacter),
     settings: normalizeSettings(state.settings),
     conversations: (state.conversations ?? []).map((conversation) => ({
@@ -161,7 +177,8 @@ export function normalizeState(state: CompanionState): CompanionState {
     })),
     facts: (state.facts ?? []).map((fact) => ({ ...fact, source: fact.source ?? "rule" })),
     momentComments: state.momentComments ?? [],
-    momentLikes: state.momentLikes ?? []
+    momentLikes: state.momentLikes ?? [],
+    inviteCodes: state.inviteCodes ?? []
   };
 }
 
@@ -178,6 +195,7 @@ export function redactStateForClient(state: CompanionState): CompanionState {
   const models = state.settings.models;
   return {
     ...state,
+    users: state.users.map((user) => ({ ...user, passwordHash: "", passwordSalt: "" })),
     settings: {
       ...state.settings,
       models: {

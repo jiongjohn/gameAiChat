@@ -1,11 +1,16 @@
 import { redactStateForClient } from "@/server/admin-service";
-import { beginMomentComment, finalizeMomentComment, resolveActiveUserId } from "@/server/companion-service";
+import { beginMomentComment, finalizeMomentComment, scopeStateForUser } from "@/server/companion-service";
 import { createChatReply } from "@/server/model-provider";
+import { getSessionUserId } from "@/server/session";
 import { companionStore } from "@/server/store";
 
 export const dynamic = "force-dynamic";
 
 export async function POST(request: Request, { params }: { params: Promise<{ momentId: string }> }) {
+  const userId = getSessionUserId(request);
+  if (!userId) {
+    return Response.json({ error: "未登录。" }, { status: 401 });
+  }
   const { momentId } = await params;
   const body = (await request.json().catch(() => ({}))) as { content?: string };
   if (!body.content?.trim()) {
@@ -17,12 +22,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ mom
 
   try {
     const current = await companionStore.read();
-    const userId = resolveActiveUserId(current);
     const start = beginMomentComment(current, { momentId, userId, content, now });
 
     if (!start.allowed) {
       const persisted = await companionStore.write(start.state);
-      return Response.json({ state: redactStateForClient(persisted), allowed: false, reply: start.reply });
+      return Response.json({ state: redactStateForClient(scopeStateForUser(persisted, userId)), allowed: false, reply: start.reply });
     }
 
     const modelResult = await createChatReply({
@@ -42,7 +46,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ mom
       return finished.state;
     });
 
-    return Response.json({ state: redactStateForClient(state), allowed: true, reply });
+    return Response.json({ state: redactStateForClient(scopeStateForUser(state, userId)), allowed: true, reply });
   } catch (error) {
     return Response.json(
       { error: error instanceof Error ? error.message : "Unable to add comment." },

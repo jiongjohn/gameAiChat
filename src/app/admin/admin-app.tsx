@@ -94,6 +94,8 @@ export default function AdminApp({
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
+  const [inviteCodes, setInviteCodes] = useState(initialState.inviteCodes ?? []);
+  const [generatingInvite, setGeneratingInvite] = useState(false);
   const [testingTarget, setTestingTarget] = useState<ModelTarget | null>(null);
   const [testResults, setTestResults] = useState<Partial<Record<ModelTarget, ModelTestResult>>>({});
   const [testMessage, setTestMessage] = useState("你好，最近怎么样？");
@@ -212,6 +214,22 @@ export default function AdminApp({
       setNotice(error instanceof Error ? error.message : "保存失败");
     } finally {
       setSaving(false);
+    }
+  }
+
+  async function generateInvite() {
+    setGeneratingInvite(true);
+    try {
+      const response = await fetch("/api/admin/invites", { method: "POST" });
+      if (!response.ok) {
+        setNotice(`生成邀请码失败：HTTP ${response.status}`);
+        return;
+      }
+      const payload = (await response.json()) as { code: string; inviteCodes: typeof inviteCodes };
+      setInviteCodes(payload.inviteCodes);
+      setNotice(`已生成邀请码：${payload.code}`);
+    } finally {
+      setGeneratingInvite(false);
     }
   }
 
@@ -678,6 +696,35 @@ export default function AdminApp({
               {characterTestError ? <p className="characterTestError">{characterTestError}</p> : null}
             </div>
           </form>
+
+          <section className="adminPanel invitePanel">
+            <header>
+              <UserCog size={20} />
+              <h2>邀请码</h2>
+              <button
+                className="adminAddCharacter"
+                disabled={generatingInvite}
+                onClick={generateInvite}
+                type="button"
+              >
+                <Plus size={16} />
+                {generatingInvite ? "生成中…" : "生成邀请码"}
+              </button>
+            </header>
+            <p className="adminPanelIntro">用户凭未使用的邀请码注册账号。每个邀请码仅可使用一次。</p>
+            <div className="inviteList">
+              {inviteCodes.length === 0 ? (
+                <p className="memoryEmpty">还没有邀请码，点击上方按钮生成。</p>
+              ) : (
+                inviteCodes.map((invite) => (
+                  <div className={`inviteItem${invite.usedByUserId ? " used" : ""}`} key={invite.code}>
+                    <code>{invite.code}</code>
+                    <span>{invite.usedByUserId ? "已使用" : "可用"}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </section>
 
           <section className="adminPanel memoryPanel">
             <header>

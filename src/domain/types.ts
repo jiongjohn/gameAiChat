@@ -6,6 +6,9 @@ export type CharacterVisibility = "public" | "hidden" | "restricted";
 
 export interface UserProfile {
   id: string;
+  username: string;
+  passwordHash: string;
+  passwordSalt: string;
   nickname: string;
   minorMode: boolean;
   ttsEnabled: boolean;
@@ -122,6 +125,13 @@ export interface AuditLog {
   createdAt: string;
 }
 
+export interface InviteCode {
+  code: string;
+  createdAt: string;
+  usedByUserId?: string;
+  usedAt?: string;
+}
+
 export interface ModelSettings {
   provider: "dev" | "deepseek" | "doubao" | "glm" | "custom";
   model: string;
@@ -155,4 +165,5 @@ export interface CompanionState {
   momentLikes: MomentLike[];
   proactiveMessages: ProactiveMessage[];
   auditLogs: AuditLog[];
+  inviteCodes: InviteCode[];
 }

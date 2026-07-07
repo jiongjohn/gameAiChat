@@ -1,5 +1,6 @@
 import { buildPrompt } from "@/domain/agent";
 import { calculateAffinity } from "@/domain/affinity";
+import { generateInviteCode, hashPassword, isValidPassword, isValidUsername, verifyPassword } from "@/domain/auth";
 import { characters, isCharacterVisibleTo } from "@/domain/characters";
 import { mergeFacts, retrieveFacts } from "@/domain/memory";
 import { generateMoment, generateProactiveMessage } from "@/domain/moments";
@@ -11,11 +12,13 @@ import type {
   CompanionState,
   Conversation,
   Fact,
+  InviteCode,
   Message,
   Moment,
   MomentComment,
   ModelSettings,
-  ProactiveMessage
+  ProactiveMessage,
+  UserProfile
 } from "@/domain/types";
 import { extractFactsLLM, generateSummaryLLM } from "./memory-provider";
 import { createChatReply } from "./model-provider";
@@ -26,8 +29,12 @@ const likeAffinityDelta = 2;
 const commentAffinityDelta = 3;
 const maxCommentLength = 500;
 
+const demoPassword = hashPassword("companion123");
 const demoUser = {
   id: "u_demo",
+  username: "demo",
+  passwordHash: demoPassword.hash,
+  passwordSalt: demoPassword.salt,
   nickname: "小满",
   minorMode: false,
   ttsEnabled: false
@@ -43,6 +50,98 @@ export function resolveActiveUserId(state: CompanionState): string {
     throw new Error("No provisioned user.");
   }
   return user.id;
+}
+
+export function getUserById(state: CompanionState, userId: string): UserProfile | undefined {
+  return state.users.find((user) => user.id === userId);
+}
+
+export function authenticateUser(state: CompanionState, username: string, password: string): UserProfile | null {
+  const user = state.users.find((item) => item.username.toLowerCase() === username.trim().toLowerCase());
+  if (!user) {
+    return null;
+  }
+  return verifyPassword(password, user.passwordHash, user.passwordSalt) ? user : null;
+}
+
+export function createInviteCode(state: CompanionState, now: string): { state: CompanionState; code: string } {
+  const existing = new Set(state.inviteCodes.map((item) => item.code));
+  let code = generateInviteCode();
+  while (existing.has(code)) {
+    code = generateInviteCode();
+  }
+  return {
+    state: {
+      ...state,
+      inviteCodes: [...state.inviteCodes, { code, createdAt: now }]
+    },
+    code
+  };
+}
+
+export function registerUser(
+  state: CompanionState,
+  input: { inviteCode: string; username: string; password: string; now: string }
+): { state: CompanionState; user: UserProfile } {
+  const username = input.username.trim();
+  if (!isValidUsername(username)) {
+    throw new Error("用户名需为 3-20 位字母、数字或下划线。");
+  }
+  if (!isValidPassword(input.password)) {
+    throw new Error("密码长度需为 6-128 位。");
+  }
+  if (state.users.some((item) => item.username.toLowerCase() === username.toLowerCase())) {
+    throw new Error("该用户名已被占用。");
+  }
+  const invite = state.inviteCodes.find((item) => item.code === input.inviteCode.trim().toUpperCase());
+  if (!invite) {
+    throw new Error("邀请码无效。");
+  }
+  if (invite.usedByUserId) {
+    throw new Error("邀请码已被使用。");
+  }
+
+  const { hash, salt } = hashPassword(input.password);
+  const user: UserProfile = {
+    id: `u_${Math.random().toString(36).slice(2, 12)}`,
+    username,
+    passwordHash: hash,
+    passwordSalt: salt,
+    nickname: username,
+    minorMode: false,
+    ttsEnabled: false,
+    createdAt: input.now
+  };
+
+  return {
+    state: {
+      ...state,
+      users: [...state.users, user],
+      inviteCodes: state.inviteCodes.map((item) =>
+        item.code === invite.code ? { ...item, usedByUserId: user.id, usedAt: input.now } : item
+      )
+    },
+    user
+  };
+}
+
+export function scopeStateForUser(state: CompanionState, userId: string): CompanionState {
+  const conversationIds = new Set(
+    state.conversations.filter((item) => item.userId === userId).map((item) => item.id)
+  );
+  const user = state.users.find((item) => item.id === userId);
+  return {
+    ...state,
+    users: user ? [user] : [],
+    conversations: state.conversations.filter((item) => item.userId === userId),
+    messages: state.messages.filter((item) => conversationIds.has(item.conversationId)),
+    facts: state.facts.filter((item) => item.userId === userId),
+    affinity: state.affinity.filter((item) => item.userId === userId),
+    moments: state.moments.filter((item) => item.userId === userId),
+    momentLikes: state.momentLikes.filter((item) => item.userId === userId),
+    proactiveMessages: state.proactiveMessages.filter((item) => item.userId === userId),
+    inviteCodes: []
+  };
 }
 
 export function getStateCharacter(state: CompanionState, characterId: string): CharacterCard {
@@ -251,7 +350,8 @@ export function createInitialState(now = new Date().toISOString()): CompanionSta
     momentComments: [],
     momentLikes: [],
     proactiveMessages: [],
-    auditLogs: []
+    auditLogs: [],
+    inviteCodes: []
   };
 }
 
