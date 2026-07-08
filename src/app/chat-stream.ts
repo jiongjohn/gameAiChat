@@ -18,6 +18,7 @@ type ChatStreamEvent =
   | { type: "token"; delta: string }
   | { type: "assistant-complete"; reply: string }
   | { type: "blocked"; reply: string }
+  | { type: "image-pending"; messageId: string }
   | { type: "state"; state: CompanionState }
   | { type: "error"; message: string }
   | { type: "done" };
@@ -38,6 +39,8 @@ function dispatch(event: ChatStreamEvent, handlers: ChatStreamHandlers) {
       break;
     case "blocked":
       handlers.onBlocked?.(event.reply);
+      break;
+    case "image-pending":
       break;
     case "state":
       handlers.onState?.(event.state);

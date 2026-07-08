@@ -12,6 +12,16 @@ export function levelForScore(score: number): AffinityLevel {
   return levelThresholds.reduce<AffinityLevel>((current, item) => (score >= item.min ? item.level : current), "初识");
 }
 
+export const affinityLevels: AffinityLevel[] = levelThresholds.map((item) => item.level);
+
+export function affinityLevelRank(level: AffinityLevel): number {
+  return affinityLevels.indexOf(level);
+}
+
+export function isAffinityAtLeast(current: AffinityLevel, min: AffinityLevel): boolean {
+  return affinityLevelRank(current) >= affinityLevelRank(min);
+}
+
 export function calculateAffinity(
   current: AffinityRecord,
   events: Array<{ reason: string; delta: number }>,

@@ -637,6 +637,35 @@ button {
   width: 100%;
 }
 
+.wxBubble.imageBubble {
+  background: transparent;
+  padding: 0;
+}
+
+.wxChatImage {
+  border-radius: 8px;
+  display: block;
+  max-width: 200px;
+  width: 100%;
+}
+
+.wxChatImagePlaceholder {
+  align-items: center;
+  background: #efe9e5;
+  border-radius: 8px;
+  color: #8a7d78;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  height: 150px;
+  justify-content: center;
+  width: 200px;
+}
+
+.wxChatImagePlaceholder.failed {
+  color: #b05a52;
+}
+
 .momentActions {
   display: flex;
   gap: 8px;

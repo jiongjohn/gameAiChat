@@ -1,6 +1,15 @@
 import { maskUnsafeOutput } from "@/domain/safety";
 import { redactStateForClient } from "@/server/admin-service";
-import { beginChatTurn, enrichChatTurnMemory, finalizeChatTurn, handleChatTurn, scopeStateForUser } from "@/server/companion-service";
+import {
+  beginChatTurn,
+  buildImageMessage,
+  chunkOutsideSentinel,
+  enrichChatTurnMemory,
+  extractImageScene,
+  finalizeChatTurn,
+  handleChatTurn,
+  scopeStateForUser
+} from "@/server/companion-service";
 import { streamChatReply } from "@/server/model-provider";
 import { getSessionUserId } from "@/server/session";
 import { companionStore } from "@/server/store";
@@ -96,9 +105,13 @@ export async function POST(request: Request) {
         });
 
         let pending = "";
+        let rawBuf = "";
         let step = await iterator.next();
         while (!step.done) {
-          pending += step.value;
+          rawBuf += step.value;
+          const { emitClean, hold } = chunkOutsideSentinel(rawBuf);
+          rawBuf = hold;
+          pending += emitClean;
           const { emit, rest } = splitSafeSentences(pending, start.minorMode);
           pending = rest;
           if (emit.length > 0) {
@@ -107,6 +120,9 @@ export async function POST(request: Request) {
           step = await iterator.next();
         }
         const modelResult = step.value;
+        if (rawBuf.length > 0 && !rawBuf.startsWith("[[IMG:")) {
+          pending += rawBuf;
+        }
         if (pending.length > 0) {
           const tail = maskUnsafeOutput(pending, { minorMode: start.minorMode });
           if (tail.length > 0) {
@@ -114,18 +130,32 @@ export async function POST(request: Request) {
           }
         }
 
+        const { cleanReply, scene } = extractImageScene(modelResult.reply);
+        const imageMessage = scene ? buildImageMessage({ conversationId, scene, now }) : null;
+
         let reply = "";
         const persisted = await companionStore.update(async (fresh) => {
-          const finished = finalizeChatTurn(start, { modelResult, now, baseState: fresh });
+          const finished = finalizeChatTurn(start, {
+            modelResult: { ...modelResult, reply: cleanReply },
+            now,
+            baseState: fresh
+          });
           reply = finished.reply;
-          return enrichChatTurnMemory(finished.state, {
+          const enriched = await enrichChatTurnMemory(finished.state, {
             conversationId,
             userMessage: content,
             assistantReply: finished.reply,
             now
           });
+          if (imageMessage) {
+            return { ...enriched, messages: [...enriched.messages, imageMessage] };
+          }
+          return enriched;
         });
         controller.enqueue(sse({ type: "assistant-complete", reply }));
+        if (imageMessage) {
+          controller.enqueue(sse({ type: "image-pending", messageId: imageMessage.id }));
+        }
 
         controller.enqueue(sse({ type: "state", state: redactStateForClient(scopeStateForUser(persisted, userId)) }));
         controller.enqueue(sse({ type: "done" }));

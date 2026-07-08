@@ -37,9 +37,7 @@ function stateWith(messages: Message[]): CompanionState {
         image: {
           provider: "dev",
           model: "dev-image",
-          temperature: 0.7,
-          maxContextTokens: 4000,
-          maxModelContextTokens: 4000
+          size: "1024x1024"
         },
         tts: {
           provider: "dev",

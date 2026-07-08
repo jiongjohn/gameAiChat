@@ -18,7 +18,7 @@ import {
   UserRound,
   UsersRound
 } from "lucide-react";
-import { FormEvent, useEffect, useMemo, useState } from "react";
+import { FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { AffinityRecord, CharacterCard, CompanionState, Fact, Message } from "@/domain/types";
 import { streamChatMessage } from "./chat-stream";
 import { loadCompanionState } from "./client-state";
@@ -368,12 +368,32 @@ function MessageList({ messages, streaming, error }: { messages: Message[]; stre
   const isTyping = streaming !== null && streaming !== undefined;
   return (
     <div className="wxMessages" aria-live="polite">
-      {messages.map((message) => (
-        <article className={classNames("wxBubble", message.role === "user" ? "mine" : "theirs", message.status)} key={message.id}>
-          <p>{message.content}</p>
-          {message.status === "blocked" ? <small>已拦截</small> : null}
-        </article>
-      ))}
+      {messages.map((message) => {
+        if (message.imageStatus) {
+          return (
+            <article className={classNames("wxBubble", "theirs", "imageBubble")} key={message.id}>
+              {message.imageStatus === "completed" && message.imageUrl ? (
+                <img className="wxChatImage" src={message.imageUrl} alt="角色发送的图片" loading="lazy" />
+              ) : message.imageStatus === "generating" ? (
+                <span className="wxChatImagePlaceholder">
+                  <Sparkles size={18} />
+                  <small>正在生成图片…</small>
+                </span>
+              ) : (
+                <span className="wxChatImagePlaceholder failed">
+                  <small>{message.imageStatus === "blocked" ? "图片未通过审核" : "图片生成失败"}</small>
+                </span>
+              )}
+            </article>
+          );
+        }
+        return (
+          <article className={classNames("wxBubble", message.role === "user" ? "mine" : "theirs", message.status)} key={message.id}>
+            <p>{message.content}</p>
+            {message.status === "blocked" ? <small>已拦截</small> : null}
+          </article>
+        );
+      })}
       {isTyping ? (
         <article className={classNames("wxBubble", "theirs", "generating")}>
           {streaming ? <p>{streaming}</p> : <p className="wxTyping"><i /><i /><i /></p>}
@@ -728,6 +748,31 @@ export default function MobileApp({ initialState }: { initialState: CompanionSta
   const detailEntry = detailCharacterId
     ? contactDirectory.find((entry) => entry.character.id === detailCharacterId)
     : undefined;
+  const imageRequestsRef = useRef<Set<string>>(new Set());
+
+  useEffect(() => {
+    if (!state) {
+      return;
+    }
+    const pending = state.messages.filter(
+      (message) => message.imageStatus === "generating" && !message.imageUrl && !imageRequestsRef.current.has(message.id)
+    );
+    for (const message of pending) {
+      imageRequestsRef.current.add(message.id);
+      fetch("/api/chat/image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ conversationId: message.conversationId, messageId: message.id })
+      })
+        .then((response) => (response.ok ? response.json() : null))
+        .then((payload) => {
+          if (payload?.state) {
+            setState(payload.state as CompanionState);
+          }
+        })
+        .catch(() => undefined);
+    }
+  }, [state]);
 
   useEffect(() => {
     setActiveCharacterId(initialState.characters[0]?.id ?? "shen-jibai");

@@ -662,6 +662,32 @@ export default function AdminApp({
                   onChange={(event) => patchCharacter("imageUrl", event.target.value)}
                 />
               </label>
+              <label className="modelCheckbox">
+                <input
+                  id={fieldId("character-chat-image-enabled")}
+                  name="chatImageEnabled"
+                  type="checkbox"
+                  checked={characterDraft.visualIdentity?.chatImageEnabled ?? false}
+                  onChange={(event) => patchVisualIdentity({ chatImageEnabled: event.target.checked })}
+                />
+                <span>聊天中允许角色自主发图（需已配置参考图与非 dev 图片模型）</span>
+              </label>
+              <label>
+                发图好感度门槛
+                <select
+                  id={fieldId("character-chat-image-min-affinity")}
+                  name="chatImageMinAffinity"
+                  disabled={!characterDraft.visualIdentity?.chatImageEnabled}
+                  value={characterDraft.visualIdentity?.chatImageMinAffinity ?? "初识"}
+                  onChange={(event) => patchVisualIdentity({ chatImageMinAffinity: event.target.value as AffinityLevel })}
+                >
+                  {affinityLevels.map((level) => (
+                    <option key={level} value={level}>
+                      {level}及以上
+                    </option>
+                  ))}
+                </select>
+              </label>
             </section>
             <label>
               头像渐变兜底

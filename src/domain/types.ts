@@ -20,6 +20,8 @@ export interface VisualIdentity {
   appearancePrompt?: string;
   negativePrompt?: string;
   styleTags?: string[];
+  chatImageEnabled?: boolean;
+  chatImageMinAffinity?: AffinityLevel;
 }
 
 export interface CharacterCard {
@@ -67,6 +69,9 @@ export interface Message {
   content: string;
   status: MessageStatus;
   audioUrl?: string;
+  imageUrl?: string;
+  imagePrompt?: string;
+  imageStatus?: "generating" | "completed" | "failed" | "blocked";
   createdAt: string;
 }
 

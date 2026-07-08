@@ -15,7 +15,9 @@ import {
   handleMomentComment,
   isCharacterActivated,
   markConversationRead,
+  patchMessageImage,
   registerUser,
+  runImageGenerationForMessage,
   runProactiveScan,
   scopeStateForUser,
   shouldReachOut,
@@ -397,5 +399,57 @@ describe("companion service", () => {
     const afterDelete = deleteFact({ ...base, facts: second.facts }, newer.id);
     expect(afterDelete.facts.some((fact) => fact.id === newer.id)).toBe(false);
     expect(afterDelete.facts.find((fact) => fact.id === older.id)!.supersededBy).toBeUndefined();
+  });
+
+  test("runImageGenerationForMessage generates via dev provider and patches message by id", async () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const conversation = base.conversations.find((item) => item.userId === "u_demo" && item.characterId === "shen-jibai")!;
+    const imageMessage = {
+      id: "msg_img_test",
+      conversationId: conversation.id,
+      role: "assistant" as const,
+      content: "",
+      status: "completed" as const,
+      imagePrompt: "窗边的我，光线很好",
+      imageStatus: "generating" as const,
+      createdAt: "2026-07-06T09:00:00.000Z"
+    };
+    const state = { ...base, messages: [...base.messages, imageMessage] };
+
+    const outcome = await runImageGenerationForMessage(state, {
+      conversationId: conversation.id,
+      messageId: imageMessage.id,
+      userId: "u_demo"
+    });
+    expect(outcome.imageStatus).toBe("completed");
+    expect(outcome.imageUrl).toMatch(/^\/api\/assets\//);
+
+    const patched = patchMessageImage(state, imageMessage.id, outcome);
+    const stored = patched.messages.find((item) => item.id === imageMessage.id)!;
+    expect(stored.imageStatus).toBe("completed");
+    expect(stored.imageUrl).toBe(outcome.imageUrl);
+  });
+
+  test("runImageGenerationForMessage blocks unsafe scene prompt", async () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const conversation = base.conversations.find((item) => item.userId === "u_demo" && item.characterId === "shen-jibai")!;
+    const imageMessage = {
+      id: "msg_img_unsafe",
+      conversationId: conversation.id,
+      role: "assistant" as const,
+      content: "",
+      status: "completed" as const,
+      imagePrompt: "我要自杀",
+      imageStatus: "generating" as const,
+      createdAt: "2026-07-06T09:00:00.000Z"
+    };
+    const state = { ...base, messages: [...base.messages, imageMessage] };
+
+    const outcome = await runImageGenerationForMessage(state, {
+      conversationId: conversation.id,
+      messageId: imageMessage.id,
+      userId: "u_demo"
+    });
+    expect(outcome.imageStatus).toBe("blocked");
   });
 });

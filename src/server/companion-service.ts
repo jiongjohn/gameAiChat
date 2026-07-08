@@ -1,5 +1,5 @@
 import { buildPrompt } from "@/domain/agent";
-import { calculateAffinity } from "@/domain/affinity";
+import { calculateAffinity, isAffinityAtLeast } from "@/domain/affinity";
 import { generateInviteCode, hashPassword, isValidPassword, isValidUsername, verifyPassword } from "@/domain/auth";
 import { characters, isCharacterVisibleTo } from "@/domain/characters";
 import { mergeFacts, retrieveFacts } from "@/domain/memory";
@@ -452,7 +452,8 @@ export function beginChatTurn(
     summary: conversation.summary,
     history,
     userMessage: input.content,
-    minorMode
+    minorMode,
+    imageSentinelEnabled: isImageSentinelEnabled(state, character, currentAffinity.level)
   });
 
   return {
@@ -642,6 +643,53 @@ export function deleteFact(
   };
 }
 
+const IMG_SENTINEL_OPENER = "[[IMG:";
+const IMG_SENTINEL_GLOBAL = /\[\[IMG:\s*[\s\S]*?\]\]/g;
+
+export function isImageSentinelEnabled(
+  state: CompanionState,
+  character: CharacterCard,
+  affinityLevel: AffinityLevel
+): boolean {
+  const visual = character.visualIdentity;
+  if (!visual?.chatImageEnabled) {
+    return false;
+  }
+  if (state.settings.models.image.provider === "dev" || !visual.referenceImageKey) {
+    return false;
+  }
+  const minAffinity = visual.chatImageMinAffinity ?? "初识";
+  return isAffinityAtLeast(affinityLevel, minAffinity);
+}
+
+export function chunkOutsideSentinel(rawBuf: string): { emitClean: string; hold: string } {
+  const stripped = rawBuf.replace(IMG_SENTINEL_GLOBAL, "");
+  const open = stripped.lastIndexOf(IMG_SENTINEL_OPENER);
+  if (open !== -1) {
+    return { emitClean: stripped.slice(0, open), hold: stripped.slice(open) };
+  }
+  const max = Math.min(IMG_SENTINEL_OPENER.length - 1, stripped.length);
+  for (let i = max; i > 0; i -= 1) {
+    if (IMG_SENTINEL_OPENER.startsWith(stripped.slice(-i))) {
+      return { emitClean: stripped.slice(0, stripped.length - i), hold: stripped.slice(-i) };
+    }
+  }
+  return { emitClean: stripped, hold: "" };
+}
+
+export function extractImageScene(full: string): { cleanReply: string; scene: string | null } {
+  let scene: string | null = null;
+  let cleanReply = full.replace(/\[\[IMG:\s*([\s\S]*?)\]\]/g, (_match, captured: string) => {
+    if (scene === null) {
+      const trimmed = captured.trim();
+      scene = trimmed.length > 0 ? trimmed : null;
+    }
+    return "";
+  });
+  cleanReply = cleanReply.replace(/\[\[IMG:[\s\S]*$/, "").trim();
+  return { cleanReply, scene };
+}
+
 function buildMomentImagePrompt(character: CharacterCard, momentContent: string): GenerateImageRequest {
   const visual = character.visualIdentity;
   const appearance = visual?.appearancePrompt ?? character.tagline;
@@ -710,6 +758,91 @@ export async function createMomentForUser(
   return {
     ...state,
     moments: [...state.moments, imageUrl ? { ...moment, imageUrl } : moment]
+  };
+}
+
+export function buildImageMessage(input: {
+  conversationId: string;
+  scene: string;
+  now: string;
+}): Message {
+  return {
+    id: id("msg"),
+    conversationId: input.conversationId,
+    role: "assistant",
+    content: "",
+    status: "completed",
+    imagePrompt: input.scene,
+    imageStatus: "generating",
+    createdAt: input.now
+  };
+}
+
+function buildChatImagePrompt(character: CharacterCard, scene: string): GenerateImageRequest {
+  const visual = character.visualIdentity;
+  const appearance = visual?.appearancePrompt ?? character.tagline;
+  const style = visual?.styleTags?.length ? `，${visual.styleTags.join("、")}` : "";
+  return {
+    prompt: `${appearance}。当前场景：${scene}${style}`,
+    negativePrompt: visual?.negativePrompt
+  };
+}
+
+export interface ChatImageOutcome {
+  imageStatus: Message["imageStatus"];
+  imageUrl?: string;
+}
+
+export async function runImageGenerationForMessage(
+  snapshot: CompanionState,
+  input: { conversationId: string; messageId: string; userId: string }
+): Promise<ChatImageOutcome> {
+  const conversation = snapshot.conversations.find((item) => item.id === input.conversationId);
+  if (!conversation || conversation.userId !== input.userId) {
+    return { imageStatus: "failed" };
+  }
+  const message = snapshot.messages.find((item) => item.id === input.messageId);
+  if (!message || message.conversationId !== input.conversationId) {
+    return { imageStatus: "failed" };
+  }
+  if (message.imageUrl) {
+    return { imageStatus: message.imageStatus, imageUrl: message.imageUrl };
+  }
+  const scene = message.imagePrompt?.trim();
+  if (!scene) {
+    return { imageStatus: "failed" };
+  }
+
+  const minorMode = snapshot.users.find((item) => item.id === input.userId)?.minorMode ?? false;
+  const moderation = moderateInput(scene, { minorMode });
+  if (!moderation.allowed) {
+    return { imageStatus: "blocked" };
+  }
+
+  const character = getStateCharacter(snapshot, conversation.characterId);
+  const provider = resolveImageProvider(snapshot.settings.models.image);
+  try {
+    const request = buildChatImagePrompt(character, scene);
+    request.referenceImage = await loadReferenceImage(character.visualIdentity?.referenceImageKey);
+    const result = await provider.generate(request);
+    if (result.status !== "completed") {
+      console.error(`[chat-image] generation failed for message ${input.messageId}:`, result.error);
+      return { imageStatus: "failed" };
+    }
+    const key = await saveAsset(result.image.data, result.image.mime);
+    return { imageStatus: "completed", imageUrl: `/api/assets/${key}` };
+  } catch (error) {
+    console.error(`[chat-image] unexpected error for message ${input.messageId}:`, error);
+    return { imageStatus: "failed" };
+  }
+}
+
+export function patchMessageImage(state: CompanionState, messageId: string, patch: ChatImageOutcome): CompanionState {
+  return {
+    ...state,
+    messages: state.messages.map((message) =>
+      message.id === messageId && !message.imageUrl ? { ...message, ...patch } : message
+    )
   };
 }
 

@@ -226,6 +226,9 @@ export function redactStateForClient(state: CompanionState): CompanionState {
   return {
     ...state,
     users: state.users.map((user) => ({ ...user, passwordHash: "", passwordSalt: "" })),
+    messages: state.messages.map((message) =>
+      message.imagePrompt ? { ...message, imagePrompt: undefined } : message
+    ),
     settings: {
       ...state.settings,
       models: {
@@ -453,6 +456,19 @@ export function validateAdminSettingsPatch(input: unknown): {
           throw new Error("character.visualIdentity.styleTags must be an array of strings.");
         }
         visualIdentity.styleTags = raw.styleTags;
+      }
+      if ("chatImageEnabled" in raw) {
+        if (typeof raw.chatImageEnabled !== "boolean") {
+          throw new Error("character.visualIdentity.chatImageEnabled must be a boolean.");
+        }
+        visualIdentity.chatImageEnabled = raw.chatImageEnabled;
+      }
+      if ("chatImageMinAffinity" in raw) {
+        const allowedLevels: AffinityLevel[] = ["初识", "熟悉", "心动", "暧昧", "热恋"];
+        if (!allowedLevels.includes(raw.chatImageMinAffinity as AffinityLevel)) {
+          throw new Error("character.visualIdentity.chatImageMinAffinity is invalid.");
+        }
+        visualIdentity.chatImageMinAffinity = raw.chatImageMinAffinity;
       }
       character.visualIdentity = visualIdentity;
     }
