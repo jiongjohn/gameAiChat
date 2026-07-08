@@ -35,7 +35,13 @@ export const characters: CharacterCard[] = [
         priority: 8
       }
     ],
-    visibility: "public"
+    visibility: "public",
+    visualIdentity: {
+      appearancePrompt:
+        "东亚成年男性，短黑发，冷峻清隽的五官，深灰色针织衫或衬衫，气质克制内敛，电影感柔光，写实风格",
+      negativePrompt: "低龄、卡通、夸张表情、多余文字、水印、畸形手部",
+      styleTags: ["cinematic", "muted-tones", "photoreal"]
+    }
   },
   {
     id: "lu-yeyan",
@@ -66,7 +72,13 @@ export const characters: CharacterCard[] = [
         priority: 10
       }
     ],
-    visibility: "public"
+    visibility: "public",
+    visualIdentity: {
+      appearancePrompt:
+        "东亚年轻男性，微卷深棕发，眼神明亮带一点锋利，皮衣或oversize衬衫，乐队舞台或排练室氛围，暖调霓虹光，写实风格",
+      negativePrompt: "低龄、卡通、夸张表情、多余文字、水印、畸形手部",
+      styleTags: ["stage-light", "warm-neon", "photoreal"]
+    }
   }
 ];
 

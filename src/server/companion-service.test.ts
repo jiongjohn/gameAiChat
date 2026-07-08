@@ -23,8 +23,8 @@ import {
 } from "./companion-service";
 import { updateCharacterConfig } from "./admin-service";
 
-function seedWithMoment(now = "2026-07-06T12:00:00.000Z") {
-  const base = createMomentForUser(createInitialState("2026-07-06T08:00:00.000Z"), {
+async function seedWithMoment(now = "2026-07-06T12:00:00.000Z") {
+  const base = await createMomentForUser(createInitialState("2026-07-06T08:00:00.000Z"), {
     userId: "u_demo",
     characterId: "shen-jibai",
     now
@@ -75,9 +75,9 @@ describe("companion service", () => {
     expect(result.state.messages.filter((message) => message.status === "blocked")).toHaveLength(1);
   });
 
-  test("creates personalized moment and proactive message", () => {
+  test("creates personalized moment and proactive message", async () => {
     const state = createInitialState("2026-07-06T08:00:00.000Z");
-    const withMoment = createMomentForUser(state, {
+    const withMoment = await createMomentForUser(state, {
       userId: "u_demo",
       characterId: "shen-jibai",
       now: "2026-07-06T12:00:00.000Z"
@@ -93,8 +93,8 @@ describe("companion service", () => {
     expect(withProactive.proactiveMessages[0].content).toContain("小满");
   });
 
-  test("toggles moment like and grants affinity only once ever", () => {
-    const { state, moment } = seedWithMoment();
+  test("toggles moment like and grants affinity only once ever", async () => {
+    const { state, moment } = await seedWithMoment();
     const baseScore = state.affinity.find((item) => item.characterId === "shen-jibai")!.score;
 
     const liked = toggleMomentLike(state, { momentId: moment.id, userId: "u_demo", now: "2026-07-06T12:01:00.000Z" });
@@ -114,7 +114,7 @@ describe("companion service", () => {
   });
 
   test("handles a safe moment comment with character reply and affinity bump", async () => {
-    const { state, moment } = seedWithMoment();
+    const { state, moment } = await seedWithMoment();
     const baseScore = state.affinity.find((item) => item.characterId === "shen-jibai")!.score;
 
     const result = await handleMomentComment(state, {
@@ -133,7 +133,7 @@ describe("companion service", () => {
   });
 
   test("blocks unsafe moment comment without creating a reply or affinity", async () => {
-    const { state, moment } = seedWithMoment();
+    const { state, moment } = await seedWithMoment();
     const baseScore = state.affinity.find((item) => item.characterId === "shen-jibai")!.score;
 
     const result = await handleMomentComment(state, {

@@ -1,13 +1,13 @@
 "use client";
 
-import { MessageSquare, PlugZap, Plus, Save, ServerCog, ShieldCheck, Sparkles, Ticket, Trash2, UserCog } from "lucide-react";
+import { ImagePlus, MessageSquare, PlugZap, Plus, Save, ServerCog, ShieldCheck, Sparkles, Ticket, Trash2, Upload, UserCog, Wand2 } from "lucide-react";
 import Link from "next/link";
-import { FormEvent, useState } from "react";
-import type { AffinityLevel, CharacterCard, CharacterVisibility, CompanionState, ModelSettings } from "@/domain/types";
+import { ChangeEvent, FormEvent, useRef, useState } from "react";
+import type { AffinityLevel, CharacterCard, CharacterVisibility, CompanionState, ImageModelSettings, ModelSettings, VisualIdentity } from "@/domain/types";
 import { applyModelPreset, getModelPreset } from "../model-presets";
 
 type AdminSection = "characters" | "invites" | "models" | "audit";
-type ModelTarget = "chat" | "image" | "tts";
+type TextModelTarget = "chat" | "tts";
 type CharacterBookEntry = CharacterCard["characterBook"][number];
 
 const affinityLevels: AffinityLevel[] = ["初识", "熟悉", "心动", "暧昧", "热恋"];
@@ -30,14 +30,10 @@ interface ModelTestResult {
   error?: string;
 }
 
-const modelLabels: Record<ModelTarget, { title: string; description: string }> = {
+const textModelLabels: Record<TextModelTarget, { title: string; description: string }> = {
   chat: {
     title: "聊天模型",
     description: "私聊、朋友圈回评、主动消息和记忆抽取默认使用这个配置。"
-  },
-  image: {
-    title: "图片模型",
-    description: "后续用于角色头像、朋友圈配图和纪念卡图生成。"
   },
   tts: {
     title: "TTS 模型",
@@ -81,18 +77,25 @@ export default function AdminApp({
   const [state, setState] = useState(initialState);
   const [activeCharacterId, setActiveCharacterId] = useState(initialState.characters[0]?.id ?? "");
   const [characterDraft, setCharacterDraft] = useState<CharacterCard>(initialState.characters[0]);
-  const [modelDrafts, setModelDrafts] = useState<Record<ModelTarget, ModelSettings>>(initialState.settings.models);
+  const [modelDrafts, setModelDrafts] = useState<Record<TextModelTarget, ModelSettings>>({
+    chat: initialState.settings.models.chat,
+    tts: initialState.settings.models.tts
+  });
+  const [imageDraft, setImageDraft] = useState<ImageModelSettings>(initialState.settings.models.image);
   const [saving, setSaving] = useState(false);
   const [creating, setCreating] = useState(false);
   const [notice, setNotice] = useState("");
   const [inviteCodes, setInviteCodes] = useState(initialState.inviteCodes ?? []);
   const [generatingInvite, setGeneratingInvite] = useState(false);
-  const [testingTarget, setTestingTarget] = useState<ModelTarget | null>(null);
-  const [testResults, setTestResults] = useState<Partial<Record<ModelTarget, ModelTestResult>>>({});
+  const [testingTarget, setTestingTarget] = useState<TextModelTarget | null>(null);
+  const [testResults, setTestResults] = useState<Partial<Record<TextModelTarget, ModelTestResult>>>({});
   const [testMessage, setTestMessage] = useState("你好，最近怎么样？");
   const [characterTesting, setCharacterTesting] = useState(false);
   const [characterTestReply, setCharacterTestReply] = useState<string | null>(null);
   const [characterTestError, setCharacterTestError] = useState<string | null>(null);
+  const [imageBusy, setImageBusy] = useState<"upload" | "generate" | null>(null);
+  const [imageError, setImageError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
 
   const demoUser = state.users[0];
   const auditLogs = [...state.auditLogs].sort((a, b) => b.createdAt.localeCompare(a.createdAt)).slice(0, 200);
@@ -120,6 +123,82 @@ export default function AdminApp({
 
   function patchCharacter(field: keyof CharacterCard, value: string) {
     setCharacterDraft((current) => ({ ...current, [field]: value }));
+  }
+
+  function patchVisualIdentity(patch: Partial<VisualIdentity>) {
+    setCharacterDraft((current) => ({
+      ...current,
+      visualIdentity: { ...current.visualIdentity, ...patch }
+    }));
+  }
+
+  function readFileAsDataUrl(file: File): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(reader.result as string);
+      reader.onerror = () => reject(new Error("读取文件失败"));
+      reader.readAsDataURL(file);
+    });
+  }
+
+  async function uploadCharacterImage(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0];
+    event.target.value = "";
+    if (!file) {
+      return;
+    }
+    setImageBusy("upload");
+    setImageError(null);
+    try {
+      const dataUrl = await readFileAsDataUrl(file);
+      const response = await fetch("/api/admin/character-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ mode: "upload", dataUrl })
+      });
+      const payload = (await response.json()) as { imageUrl?: string; error?: string };
+      if (!response.ok || !payload.imageUrl) {
+        throw new Error(payload.error ?? `上传失败：HTTP ${response.status}`);
+      }
+      patchCharacter("imageUrl", payload.imageUrl);
+      setNotice("图片已上传，记得点保存角色");
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "上传失败");
+    } finally {
+      setImageBusy(null);
+    }
+  }
+
+  async function generateCharacterImage() {
+    const appearance = characterDraft.visualIdentity?.appearancePrompt?.trim();
+    if (!appearance) {
+      setImageError("请先填写形象描述再生成。");
+      return;
+    }
+    setImageBusy("generate");
+    setImageError(null);
+    try {
+      const response = await fetch("/api/admin/character-image", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          mode: "generate",
+          appearancePrompt: appearance,
+          negativePrompt: characterDraft.visualIdentity?.negativePrompt,
+          styleTags: characterDraft.visualIdentity?.styleTags
+        })
+      });
+      const payload = (await response.json()) as { imageUrl?: string; error?: string };
+      if (!response.ok || !payload.imageUrl) {
+        throw new Error(payload.error ?? `生成失败：HTTP ${response.status}`);
+      }
+      patchCharacter("imageUrl", payload.imageUrl);
+      setNotice("已生成图片，记得点保存角色");
+    } catch (error) {
+      setImageError(error instanceof Error ? error.message : "生成失败");
+    } finally {
+      setImageBusy(null);
+    }
   }
 
   function patchVisibility(value: CharacterVisibility) {
@@ -306,7 +385,12 @@ export default function AdminApp({
     }
   }
 
-  function patchModel(target: ModelTarget, patch: Partial<ModelSettings>) {
+  function syncModelDrafts(next: CompanionState) {
+    setModelDrafts({ chat: next.settings.models.chat, tts: next.settings.models.tts });
+    setImageDraft(next.settings.models.image);
+  }
+
+  function patchModel(target: TextModelTarget, patch: Partial<ModelSettings>) {
     setModelDrafts((current) => ({
       ...current,
       [target]: {
@@ -316,14 +400,14 @@ export default function AdminApp({
     }));
   }
 
-  function applyPreset(target: ModelTarget) {
+  function applyPreset(target: TextModelTarget) {
     setModelDrafts((current) => ({
       ...current,
       [target]: applyModelPreset(current[target], current[target].model)
     }));
   }
 
-  async function saveModel(event: FormEvent<HTMLFormElement>, target: ModelTarget) {
+  async function saveModel(event: FormEvent<HTMLFormElement>, target: TextModelTarget) {
     event.preventDefault();
     setSaving(true);
     const response = await fetch("/api/admin/settings", {
@@ -333,12 +417,12 @@ export default function AdminApp({
     });
     const next = (await response.json()) as CompanionState;
     setState(next);
-    setModelDrafts(next.settings.models);
+    syncModelDrafts(next);
     setSaving(false);
-    setNotice(`${modelLabels[target].title}已保存`);
+    setNotice(`${textModelLabels[target].title}已保存`);
   }
 
-  async function testModel(target: ModelTarget) {
+  async function testModel(target: TextModelTarget) {
     setTestingTarget(target);
     setTestResults((current) => ({ ...current, [target]: undefined }));
     try {
@@ -357,6 +441,42 @@ export default function AdminApp({
     } finally {
       setTestingTarget(null);
     }
+  }
+
+  function patchImageModel(patch: Partial<ImageModelSettings>) {
+    setImageDraft((current) => ({ ...current, ...patch }));
+  }
+
+  function changeImageProvider(provider: ImageModelSettings["provider"]) {
+    setImageDraft((current) => {
+      if (provider !== "stepfun") {
+        return { ...current, provider };
+      }
+      const isPlaceholderModel = !current.model || current.model === "dev-image";
+      return {
+        ...current,
+        provider,
+        model: isPlaceholderModel ? "step-image-edit-2" : current.model,
+        baseUrl: current.baseUrl || "https://api.stepfun.com/v1",
+        steps: current.steps ?? 8,
+        cfgScale: current.cfgScale ?? 1
+      };
+    });
+  }
+
+  async function saveImageModel(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setSaving(true);
+    const response = await fetch("/api/admin/settings", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ model: { target: "image", ...imageDraft } })
+    });
+    const next = (await response.json()) as CompanionState;
+    setState(next);
+    syncModelDrafts(next);
+    setSaving(false);
+    setNotice("图片模型已保存");
   }
 
   return (
@@ -480,16 +600,69 @@ export default function AdminApp({
               角色名
               <input id={fieldId("character-name")} name="name" value={characterDraft.name} onChange={(event) => patchCharacter("name", event.target.value)} />
             </label>
-            <label>
-              角色图片 URL
-              <input
-                id={fieldId("character-image-url")}
-                name="imageUrl"
-                placeholder="https://..."
-                value={fieldValue(characterDraft.imageUrl)}
-                onChange={(event) => patchCharacter("imageUrl", event.target.value)}
-              />
-            </label>
+            <section className="characterImageBlock">
+              <div className="characterImageHead">
+                <ImagePlus size={16} />
+                <span>角色形象</span>
+              </div>
+              <div className="characterImagePreview">
+                {characterDraft.imageUrl ? (
+                  <img src={characterDraft.imageUrl} alt={`${characterDraft.name}的形象`} />
+                ) : (
+                  <span style={{ background: characterDraft.avatarGradient }}>{characterDraft.name.slice(0, 1)}</span>
+                )}
+              </div>
+              <label>
+                形象描述（AI 生成 / 图生图使用）
+                <textarea
+                  id={fieldId("character-appearance-prompt")}
+                  name="appearancePrompt"
+                  rows={3}
+                  placeholder="发型、五官、气质、服饰、光影、风格…"
+                  value={fieldValue(characterDraft.visualIdentity?.appearancePrompt)}
+                  onChange={(event) => patchVisualIdentity({ appearancePrompt: event.target.value })}
+                />
+              </label>
+              <div className="characterImageActions">
+                <input
+                  ref={fileInputRef}
+                  id={fieldId("character-image-file")}
+                  type="file"
+                  accept="image/png,image/jpeg,image/webp,image/gif"
+                  hidden
+                  onChange={uploadCharacterImage}
+                />
+                <button
+                  type="button"
+                  className="adminSecondary"
+                  disabled={imageBusy !== null}
+                  onClick={() => fileInputRef.current?.click()}
+                >
+                  <Upload size={15} />
+                  <span>{imageBusy === "upload" ? "上传中…" : "上传图片"}</span>
+                </button>
+                <button
+                  type="button"
+                  className="adminSecondary"
+                  disabled={imageBusy !== null}
+                  onClick={generateCharacterImage}
+                >
+                  <Wand2 size={15} />
+                  <span>{imageBusy === "generate" ? "生成中…" : "AI 生成"}</span>
+                </button>
+              </div>
+              {imageError ? <p className="characterImageError">{imageError}</p> : null}
+              <label>
+                图片地址（上传/生成会自动填入，也可手填 URL）
+                <input
+                  id={fieldId("character-image-url")}
+                  name="imageUrl"
+                  placeholder="https://... 或 /api/assets/..."
+                  value={fieldValue(characterDraft.imageUrl)}
+                  onChange={(event) => patchCharacter("imageUrl", event.target.value)}
+                />
+              </label>
+            </section>
             <label>
               头像渐变兜底
               <input id={fieldId("character-avatar-gradient")} name="avatarGradient" value={characterDraft.avatarGradient} onChange={(event) => patchCharacter("avatarGradient", event.target.value)} />
@@ -734,15 +907,15 @@ export default function AdminApp({
               <h2>全局模型设置</h2>
             </header>
             <p className="adminPanelIntro">这些是全局模型配置，不绑定到单个角色。角色只负责人设、图片和语气。</p>
-            {(Object.keys(modelLabels) as ModelTarget[]).map((target) => {
+            {(Object.keys(textModelLabels) as TextModelTarget[]).map((target) => {
               const draft = modelDrafts[target];
               const preset = getModelPreset(draft.model);
               return (
                 <form className="modelCard" key={target} onSubmit={(event) => saveModel(event, target)}>
                   <div className="modelCardHeader">
                     <div>
-                      <strong>{modelLabels[target].title}</strong>
-                      <span>{modelLabels[target].description}</span>
+                      <strong>{textModelLabels[target].title}</strong>
+                      <span>{textModelLabels[target].description}</span>
                     </div>
                   </div>
                   <label>
@@ -837,7 +1010,7 @@ export default function AdminApp({
                   <div className="modelActions">
                     <button className="adminSave" type="submit" disabled={saving}>
                       <Save size={18} />
-                      <span>保存{modelLabels[target].title}</span>
+                      <span>保存{textModelLabels[target].title}</span>
                     </button>
                     <button
                       className="adminSecondary modelTestButton"
@@ -875,8 +1048,125 @@ export default function AdminApp({
                 </form>
               );
             })}
+            <form className="modelCard" onSubmit={saveImageModel}>
+              <div className="modelCardHeader">
+                <div>
+                  <strong>图片模型</strong>
+                  <span>朋友圈配图与角色发图使用；支持文生图与图生图（参考图 + 外貌 Prompt）。</span>
+                </div>
+              </div>
+              <label>
+                Provider
+                <select
+                  id={fieldId("model-image-provider")}
+                  name="image-provider"
+                  value={imageDraft.provider}
+                  onChange={(event) => changeImageProvider(event.target.value as ImageModelSettings["provider"])}
+                >
+                  <option value="dev">dev（占位图）</option>
+                  <option value="openai">openai（兼容 /images）</option>
+                  <option value="stepfun">stepfun（阶跃 step-image-edit-2）</option>
+                  <option value="volcano">volcano（豆包/即梦，暂降级占位）</option>
+                </select>
+              </label>
+              <label>
+                文生图模型名
+                <input
+                  id={fieldId("model-image-name")}
+                  name="image-model"
+                  value={imageDraft.model}
+                  onChange={(event) => patchImageModel({ model: event.target.value })}
+                />
+              </label>
+              <label>
+                图生图模型名（留空则复用上方模型）
+                <input
+                  id={fieldId("model-image-i2i")}
+                  name="image-i2iModel"
+                  value={fieldValue(imageDraft.i2iModel)}
+                  onChange={(event) => patchImageModel({ i2iModel: event.target.value })}
+                />
+              </label>
+              <label>
+                Base URL
+                <input
+                  id={fieldId("model-image-base-url")}
+                  name="image-baseUrl"
+                  value={fieldValue(imageDraft.baseUrl)}
+                  onChange={(event) => patchImageModel({ baseUrl: event.target.value })}
+                />
+              </label>
+              <label>
+                API Key
+                <input
+                  autoComplete="current-password"
+                  id={fieldId("model-image-api-key")}
+                  name="image-apiKey"
+                  type="password"
+                  placeholder={imageDraft.apiKey ? "已保存，留空不覆盖" : "MVP 可先留空"}
+                  onChange={(event) => patchImageModel({ apiKey: event.target.value })}
+                />
+              </label>
+              <label>
+                默认尺寸{imageDraft.provider === "stepfun" ? "（阶跃为 高x宽，如 1024x1024 / 896x1184）" : ""}
+                <input
+                  id={fieldId("model-image-size")}
+                  name="image-size"
+                  placeholder="1024x1024"
+                  value={fieldValue(imageDraft.size)}
+                  onChange={(event) => patchImageModel({ size: event.target.value })}
+                />
+              </label>
+              {imageDraft.provider === "stepfun" ? (
+                <div className="modelNumbers">
+                  <label>
+                    steps（1-50，默认 8）
+                    <input
+                      id={fieldId("model-image-steps")}
+                      name="image-steps"
+                      type="number"
+                      min="1"
+                      max="50"
+                      value={imageDraft.steps ?? 8}
+                      onChange={(event) => patchImageModel({ steps: Number(event.target.value) })}
+                    />
+                  </label>
+                  <label>
+                    cfg_scale（≥1，负面词需&gt;1 生效）
+                    <input
+                      id={fieldId("model-image-cfg")}
+                      name="image-cfg"
+                      type="number"
+                      min="1"
+                      max="10"
+                      step="0.1"
+                      value={imageDraft.cfgScale ?? 1}
+                      onChange={(event) => patchImageModel({ cfgScale: Number(event.target.value) })}
+                    />
+                  </label>
+                </div>
+              ) : null}
+              {imageDraft.provider === "stepfun" ? (
+                <label className="modelCheckbox">
+                  <input
+                    id={fieldId("model-image-text-mode")}
+                    name="image-text-mode"
+                    type="checkbox"
+                    checked={imageDraft.textMode ?? false}
+                    onChange={(event) => patchImageModel({ textMode: event.target.checked })}
+                  />
+                  <span>text_mode（文字场景优化）</span>
+                </label>
+              ) : null}
+              <div className="modelActions">
+                <button className="adminSave" type="submit" disabled={saving}>
+                  <Save size={18} />
+                  <span>保存图片模型</span>
+                </button>
+              </div>
+            </form>
             <div className="adminNote">
-              聊天模型会通过 Base URL 自动请求 /chat/completions；如果 Base URL 已经填到完整接口地址，则会直接使用该地址。
+              聊天模型会通过 Base URL 自动请求 /chat/completions；如果 Base URL 已经填到完整接口地址，则会直接使用该地址。图片模型 dev provider 生成占位图；阶跃 stepfun 默认接 https://api.stepfun.com/v1，模型填 step-image-edit-2，Base URL 留空即用默认。
             </div>
           </section>
         </div>

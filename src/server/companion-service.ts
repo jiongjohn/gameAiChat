@@ -5,6 +5,8 @@ import { characters, isCharacterVisibleTo } from "@/domain/characters";
 import { mergeFacts, retrieveFacts } from "@/domain/memory";
 import { generateMoment, generateProactiveMessage } from "@/domain/moments";
 import { maskUnsafeOutput, moderateInput } from "@/domain/safety";
+import { readAsset, saveAsset } from "./asset-store";
+import { resolveImageProvider, type GenerateImageRequest } from "./image-provider";
 import type {
   AffinityLevel,
   AffinityRecord,
@@ -331,9 +333,7 @@ export function createInitialState(now = new Date().toISOString()): CompanionSta
         image: {
           provider: "dev",
           model: "dev-image",
-          temperature: 0.7,
-          maxContextTokens: 4000,
-          maxModelContextTokens: 4000
+          size: "1024x1024"
         },
         tts: {
           provider: "dev",
@@ -642,10 +642,53 @@ export function deleteFact(
   };
 }
 
-export function createMomentForUser(
+function buildMomentImagePrompt(character: CharacterCard, momentContent: string): GenerateImageRequest {
+  const visual = character.visualIdentity;
+  const appearance = visual?.appearancePrompt ?? character.tagline;
+  const style = visual?.styleTags?.length ? `，${visual.styleTags.join("、")}` : "";
+  return {
+    prompt: `${appearance}。场景：${momentContent}。竖构图生活随拍${style}`,
+    negativePrompt: visual?.negativePrompt
+  };
+}
+
+async function loadReferenceImage(referenceImageKey?: string): Promise<GenerateImageRequest["referenceImage"]> {
+  if (!referenceImageKey) {
+    return undefined;
+  }
+  const asset = await readAsset(referenceImageKey);
+  if (!asset) {
+    return undefined;
+  }
+  return { kind: "base64", data: asset.bytes.toString("base64"), mime: asset.mime };
+}
+
+async function generateMomentImageKey(
+  state: CompanionState,
+  character: CharacterCard,
+  momentContent: string
+): Promise<string | undefined> {
+  const settings = state.settings.models.image;
+  const provider = resolveImageProvider(settings);
+  try {
+    const request = buildMomentImagePrompt(character, momentContent);
+    request.referenceImage = await loadReferenceImage(character.visualIdentity?.referenceImageKey);
+    const result = await provider.generate(request);
+    if (result.status !== "completed") {
+      console.error(`[moment-image] generation failed for ${character.id}:`, result.error);
+      return undefined;
+    }
+    return await saveAsset(result.image.data, result.image.mime);
+  } catch (error) {
+    console.error(`[moment-image] unexpected error for ${character.id}:`, error);
+    return undefined;
+  }
+}
+
+export async function createMomentForUser(
   state: CompanionState,
   input: { userId: string; characterId: string; now: string }
-): CompanionState {
+): Promise<CompanionState> {
   const character = getStateCharacter(state, input.characterId);
   const conversation = state.conversations.find(
     (item) => item.userId === input.userId && item.characterId === input.characterId
@@ -659,9 +702,14 @@ export function createMomentForUser(
     now: input.now
   });
 
+  const imageUrl =
+    moment.status === "published"
+      ? await generateMomentImageKey(state, character, moment.content)
+      : undefined;
+
   return {
     ...state,
-    moments: [...state.moments, moment]
+    moments: [...state.moments, imageUrl ? { ...moment, imageUrl } : moment]
   };
 }
 

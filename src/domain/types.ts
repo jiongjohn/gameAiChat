@@ -15,6 +15,13 @@ export interface UserProfile {
   createdAt: string;
 }
 
+export interface VisualIdentity {
+  referenceImageKey?: string;
+  appearancePrompt?: string;
+  negativePrompt?: string;
+  styleTags?: string[];
+}
+
 export interface CharacterCard {
   id: string;
   name: string;
@@ -39,6 +46,7 @@ export interface CharacterCard {
   }>;
   visibility: CharacterVisibility;
   allowedUserIds?: string[];
+  visualIdentity?: VisualIdentity;
 }
 
 export interface Conversation {
@@ -87,6 +95,7 @@ export interface Moment {
   userId: string;
   content: string;
   imageKey: string;
+  imageUrl?: string;
   status: MomentStatus;
   publishAt: string;
   createdAt: string;
@@ -142,10 +151,25 @@ export interface ModelSettings {
   maxModelContextTokens?: number;
 }
 
+export interface ImageModelSettings {
+  provider: "dev" | "openai" | "stepfun" | "volcano";
+  model: string;
+  i2iModel?: string;
+  baseUrl?: string;
+  apiKey?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  region?: string;
+  size?: string;
+  cfgScale?: number;
+  steps?: number;
+  textMode?: boolean;
+}
+
 export interface AppSettings {
   models: {
     chat: ModelSettings;
-    image: ModelSettings;
+    image: ImageModelSettings;
     tts: ModelSettings;
   };
   /** @deprecated kept only while migrating old JSON state files */

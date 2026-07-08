@@ -505,7 +505,16 @@ function MomentCard({
           <time>{formatClock(item.moment.publishAt)}</time>
         </header>
         <p>{item.moment.content}</p>
-        <div className="momentPhoto">{item.moment.imageKey}</div>
+        {item.moment.imageUrl ? (
+          <img
+            className="momentPhoto momentPhotoReal"
+            src={`/api/assets/${item.moment.imageUrl}`}
+            alt={`${item.character.name}的动态配图`}
+            loading="lazy"
+          />
+        ) : (
+          <div className="momentPhoto">{item.moment.imageKey}</div>
+        )}
         <div className="momentActions">
           <button
             type="button"

@@ -1,6 +1,6 @@
 import { hashPassword } from "@/domain/auth";
 import { characters as seedCharacters } from "@/domain/characters";
-import type { AffinityLevel, AppSettings, CharacterCard, CharacterVisibility, CompanionState, ModelSettings, UserProfile } from "@/domain/types";
+import type { AffinityLevel, AppSettings, CharacterCard, CharacterVisibility, CompanionState, ImageModelSettings, ModelSettings, UserProfile } from "@/domain/types";
 
 const modelProviders: ModelSettings["provider"][] = ["dev", "deepseek", "doubao", "glm", "custom"];
 const characterStringFields = [
@@ -31,12 +31,11 @@ const defaultModelSettings: ModelSettings = {
   maxContextTokens: 16000,
   maxModelContextTokens: 16000
 };
-const defaultImageModelSettings: ModelSettings = {
+const imageProviders: ImageModelSettings["provider"][] = ["dev", "openai", "stepfun", "volcano"];
+const defaultImageModelSettings: ImageModelSettings = {
   provider: "dev",
   model: "dev-image",
-  temperature: 0.7,
-  maxContextTokens: 4000,
-  maxModelContextTokens: 4000
+  size: "1024x1024"
 };
 const defaultTtsModelSettings: ModelSettings = {
   provider: "dev",
@@ -100,7 +99,8 @@ function normalizeCharacter(character: Partial<CharacterCard> & { id: string }):
     },
     characterBook: Array.isArray(character.characterBook) ? character.characterBook : fallback.characterBook,
     visibility: character.visibility ?? fallback.visibility ?? "public",
-    allowedUserIds: character.allowedUserIds ?? fallback.allowedUserIds
+    allowedUserIds: character.allowedUserIds ?? fallback.allowedUserIds,
+    visualIdentity: character.visualIdentity ?? fallback.visualIdentity
   };
 }
 
@@ -139,10 +139,32 @@ function normalizeModelSettings(settings: Partial<ModelSettings> | undefined, fa
   };
 }
 
+function normalizeImageSettings(settings?: Partial<ImageModelSettings>): ImageModelSettings {
+  const fallback = defaultImageModelSettings;
+  const providerCandidate = settings?.provider;
+  const provider = providerCandidate && imageProviders.includes(providerCandidate) ? providerCandidate : fallback.provider;
+  const cfgScale = typeof settings?.cfgScale === "number" && Number.isFinite(settings.cfgScale) ? settings.cfgScale : undefined;
+  const steps = typeof settings?.steps === "number" && Number.isFinite(settings.steps) ? Math.floor(settings.steps) : undefined;
+  return {
+    provider,
+    model: settings?.model?.trim() || fallback.model,
+    i2iModel: settings?.i2iModel?.trim() || undefined,
+    baseUrl: settings?.baseUrl?.trim() || undefined,
+    apiKey: settings?.apiKey?.trim() || undefined,
+    accessKeyId: settings?.accessKeyId?.trim() || undefined,
+    secretAccessKey: settings?.secretAccessKey?.trim() || undefined,
+    region: settings?.region?.trim() || undefined,
+    size: settings?.size?.trim() || fallback.size,
+    cfgScale,
+    steps,
+    textMode: typeof settings?.textMode === "boolean" ? settings.textMode : undefined
+  };
+}
+
 function normalizeSettings(settings?: Partial<AppSettings>): AppSettings {
   const legacyModel = settings?.model;
   const chat = normalizeModelSettings(settings?.models?.chat ?? legacyModel, defaultModelSettings);
-  const image = normalizeModelSettings(settings?.models?.image, defaultImageModelSettings);
+  const image = normalizeImageSettings(settings?.models?.image);
   const tts = normalizeModelSettings(settings?.models?.tts, defaultTtsModelSettings);
 
   return {
@@ -191,6 +213,14 @@ function redactModelSettings(model: ModelSettings): ModelSettings {
   return { ...model, apiKey: REDACTED_API_KEY };
 }
 
+function redactImageSettings(model: ImageModelSettings): ImageModelSettings {
+  return {
+    ...model,
+    apiKey: model.apiKey ? REDACTED_API_KEY : model.apiKey,
+    secretAccessKey: model.secretAccessKey ? REDACTED_API_KEY : model.secretAccessKey
+  };
+}
+
 export function redactStateForClient(state: CompanionState): CompanionState {
   const models = state.settings.models;
   return {
@@ -200,7 +230,7 @@ export function redactStateForClient(state: CompanionState): CompanionState {
       ...state.settings,
       models: {
         chat: redactModelSettings(models.chat),
-        image: redactModelSettings(models.image),
+        image: redactImageSettings(models.image),
         tts: redactModelSettings(models.tts)
       },
       model: redactModelSettings(state.settings.model)
@@ -236,7 +266,10 @@ export function updateCharacterConfig(
       affinityPrompts: input.affinityPrompts ?? character.affinityPrompts,
       characterBook: input.characterBook ?? character.characterBook,
       visibility: input.visibility ?? character.visibility,
-      allowedUserIds: input.allowedUserIds ?? character.allowedUserIds
+      allowedUserIds: input.allowedUserIds ?? character.allowedUserIds,
+      visualIdentity: input.visualIdentity
+        ? { ...character.visualIdentity, ...input.visualIdentity }
+        : character.visualIdentity
     };
   });
 
@@ -250,16 +283,40 @@ export function updateCharacterConfig(
   };
 }
 
+function keepSecret(incoming: unknown, current?: string): string | undefined {
+  const trimmed = typeof incoming === "string" ? incoming.trim() : "";
+  if (!trimmed) {
+    return current;
+  }
+  return trimmed === REDACTED_API_KEY ? current : trimmed;
+}
+
 export function updateModelSettings(
   state: CompanionState,
-  input: Partial<ModelSettings>,
+  input: Partial<ModelSettings> | Partial<ImageModelSettings>,
   target: keyof AppSettings["models"] = "chat"
 ): CompanionState {
   const next = normalizeState(state);
-  const current = next.settings.models[target];
-  const incomingApiKey = typeof input.apiKey === "string" ? input.apiKey.trim() : "";
-  const apiKey = incomingApiKey && incomingApiKey !== REDACTED_API_KEY ? incomingApiKey : current.apiKey;
-  const model = normalizeModelSettings({ ...current, ...input, apiKey }, current);
+
+  if (target === "image") {
+    const current = next.settings.models.image;
+    const patch = input as Partial<ImageModelSettings>;
+    const image = normalizeImageSettings({
+      ...current,
+      ...patch,
+      apiKey: keepSecret(patch.apiKey, current.apiKey),
+      secretAccessKey: keepSecret(patch.secretAccessKey, current.secretAccessKey)
+    });
+    return {
+      ...next,
+      settings: { ...next.settings, models: { ...next.settings.models, image } }
+    };
+  }
+
+  const current = next.settings.models[target] as ModelSettings;
+  const patch = input as Partial<ModelSettings>;
+  const apiKey = keepSecret(patch.apiKey, current.apiKey);
+  const model = normalizeModelSettings({ ...current, ...patch, apiKey }, current);
   const models = {
     ...next.settings.models,
     [target]: model
@@ -377,6 +434,28 @@ export function validateAdminSettingsPatch(input: unknown): {
       }
       character.allowedUserIds = input.character.allowedUserIds;
     }
+    if ("visualIdentity" in input.character) {
+      if (!isRecord(input.character.visualIdentity)) {
+        throw new Error("character.visualIdentity must be an object.");
+      }
+      const raw = input.character.visualIdentity;
+      const visualIdentity: JsonRecord = {};
+      for (const field of ["referenceImageKey", "appearancePrompt", "negativePrompt"] as const) {
+        if (field in raw) {
+          if (typeof raw[field] !== "string") {
+            throw new Error(`character.visualIdentity.${field} must be a string.`);
+          }
+          visualIdentity[field] = raw[field];
+        }
+      }
+      if ("styleTags" in raw) {
+        if (!Array.isArray(raw.styleTags) || !raw.styleTags.every((tag) => typeof tag === "string")) {
+          throw new Error("character.visualIdentity.styleTags must be an array of strings.");
+        }
+        visualIdentity.styleTags = raw.styleTags;
+      }
+      character.visualIdentity = visualIdentity;
+    }
     result.character = character as Parameters<typeof updateCharacterConfig>[1];
   }
 
@@ -393,13 +472,19 @@ export function validateAdminSettingsPatch(input: unknown): {
       }
       modelTarget = input.model.target;
     }
+    const providerWhitelist = modelTarget === "image" ? imageProviders : modelProviders;
     if ("provider" in input.model) {
-      if (!modelProviders.includes(input.model.provider as ModelSettings["provider"])) {
+      if (!(providerWhitelist as string[]).includes(input.model.provider as string)) {
         throw new Error("model.provider is invalid.");
       }
       model.provider = input.model.provider;
     }
-    for (const field of ["model", "baseUrl", "apiKey"] as const) {
+
+    const stringFields =
+      modelTarget === "image"
+        ? (["model", "i2iModel", "baseUrl", "apiKey", "accessKeyId", "secretAccessKey", "region", "size"] as const)
+        : (["model", "baseUrl", "apiKey"] as const);
+    for (const field of stringFields) {
       if (!(field in input.model)) {
         continue;
       }
@@ -408,14 +493,35 @@ export function validateAdminSettingsPatch(input: unknown): {
       }
       model[field] = input.model[field];
     }
-    for (const field of ["temperature", "maxContextTokens", "maxModelContextTokens"] as const) {
-      if (!(field in input.model)) {
-        continue;
+
+    if (modelTarget === "image") {
+      for (const field of ["cfgScale", "steps"] as const) {
+        if (!(field in input.model)) {
+          continue;
+        }
+        if (!Number.isFinite(input.model[field])) {
+          throw new Error(`model.${field} must be a finite number.`);
+        }
+        model[field] = input.model[field];
       }
-      if (!Number.isFinite(input.model[field])) {
-        throw new Error(`model.${field} must be a finite number.`);
+      if ("textMode" in input.model) {
+        if (typeof input.model.textMode !== "boolean") {
+          throw new Error("model.textMode must be a boolean.");
+        }
+        model.textMode = input.model.textMode;
       }
-      model[field] = input.model[field];
+    }
+
+    if (modelTarget !== "image") {
+      for (const field of ["temperature", "maxContextTokens", "maxModelContextTokens"] as const) {
+        if (!(field in input.model)) {
+          continue;
+        }
+        if (!Number.isFinite(input.model[field])) {
+          throw new Error(`model.${field} must be a finite number.`);
+        }
+        model[field] = input.model[field];
+      }
     }
     if (typeof model.model === "string" && model.model.trim() === "") {
       throw new Error("model.model cannot be blank.");

@@ -629,6 +629,14 @@ button {
   padding: 10px;
 }
 
+.momentPhotoReal {
+  background: #ece7e3;
+  display: block;
+  object-fit: cover;
+  padding: 0;
+  width: 100%;
+}
+
 .momentActions {
   display: flex;
   gap: 8px;
@@ -1180,6 +1188,18 @@ button {
   grid-template-columns: repeat(2, minmax(0, 1fr));
 }
 
+.modelCheckbox {
+  align-items: center;
+  display: flex;
+  flex-direction: row;
+  gap: 8px;
+}
+
+.modelCheckbox input {
+  height: 16px;
+  width: 16px;
+}
+
 .modelNameRow {
   display: grid;
   gap: 8px;
@@ -1193,6 +1213,76 @@ button {
   color: #201b18;
   min-height: 42px;
   padding: 0 12px;
+}
+
+.characterImageBlock {
+  border: 1px solid rgba(32, 27, 24, 0.14);
+  border-radius: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 12px;
+}
+
+.characterImageHead {
+  align-items: center;
+  color: #6b5f57;
+  display: flex;
+  font-size: 13px;
+  font-weight: 600;
+  gap: 6px;
+}
+
+.characterImagePreview {
+  align-items: center;
+  aspect-ratio: 1 / 1;
+  background: #f4f1ec;
+  border-radius: 10px;
+  display: flex;
+  justify-content: center;
+  max-width: 132px;
+  overflow: hidden;
+  width: 132px;
+}
+
+.characterImagePreview img {
+  height: 100%;
+  object-fit: cover;
+  width: 100%;
+}
+
+.characterImagePreview span {
+  align-items: center;
+  color: rgba(255, 255, 255, 0.92);
+  display: flex;
+  font-size: 40px;
+  font-weight: 700;
+  height: 100%;
+  justify-content: center;
+  width: 100%;
+}
+
+.characterImageActions {
+  display: flex;
+  gap: 8px;
+}
+
+.characterImageActions .adminSecondary {
+  align-items: center;
+  display: inline-flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.characterImageActions .adminSecondary:disabled {
+  color: #a99f98;
+  cursor: not-allowed;
+}
+
+.characterImageError {
+  color: #c0392b;
+  font-size: 12px;
+  margin: 0;
 }
 
 .modelGuidance {

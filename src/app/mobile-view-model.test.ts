@@ -35,8 +35,8 @@ describe("mobile view model", () => {
     expect(buildAddableContacts(activated.state, "u_demo")).toHaveLength(0);
   });
 
-  test("builds a newest-first moment feed with character metadata", () => {
-    const state = createMomentForUser(createInitialState("2026-07-06T08:00:00.000Z"), {
+  test("builds a newest-first moment feed with character metadata", async () => {
+    const state = await createMomentForUser(createInitialState("2026-07-06T08:00:00.000Z"), {
       userId: "u_demo",
       characterId: "shen-jibai",
       now: "2026-07-06T12:00:00.000Z"

@@ -79,6 +79,37 @@ describe("admin service", () => {
     expect(result.prompt).toContain("稳定、温柔");
   });
 
+  test("persists and merges character visualIdentity", () => {
+    const state = normalizeState(createInitialState("2026-07-06T08:00:00.000Z"));
+    const withPrompt = updateCharacterConfig(state, {
+      characterId: "shen-jibai",
+      visualIdentity: { appearancePrompt: "短黑发，冷峻，写实" }
+    });
+    expect(getStateCharacter(withPrompt, "shen-jibai").visualIdentity?.appearancePrompt).toBe("短黑发，冷峻，写实");
+
+    const withImage = updateCharacterConfig(withPrompt, {
+      characterId: "shen-jibai",
+      visualIdentity: { referenceImageKey: "abc123.png" }
+    });
+    const visual = getStateCharacter(withImage, "shen-jibai").visualIdentity;
+    expect(visual?.referenceImageKey).toBe("abc123.png");
+    expect(visual?.appearancePrompt).toBe("短黑发，冷峻，写实");
+  });
+
+  test("validates character.visualIdentity fields", () => {
+    expect(
+      validateAdminSettingsPatch({
+        character: { characterId: "shen-jibai", visualIdentity: { appearancePrompt: "写实立绘", styleTags: ["cinematic"] } }
+      }).character
+    ).toMatchObject({ visualIdentity: { appearancePrompt: "写实立绘", styleTags: ["cinematic"] } });
+
+    expect(() =>
+      validateAdminSettingsPatch({
+        character: { characterId: "shen-jibai", visualIdentity: { styleTags: "cinematic" } }
+      })
+    ).toThrow("character.visualIdentity.styleTags must be an array of strings.");
+  });
+
   test("updates model settings without storing blank api key", () => {
     const state = normalizeState(createInitialState("2026-07-06T08:00:00.000Z"));
     const next = updateModelSettings(state, {
@@ -201,22 +232,30 @@ describe("admin service", () => {
       })
     ).toThrow("character.imageUrl must be a string");
 
-    expect(validateAdminSettingsPatch({
+    const imagePatch = validateAdminSettingsPatch({
       model: {
         target: "image",
-        provider: "deepseek",
-        model: "deepseek-v4-flash",
-        baseUrl: "https://api.deepseek.com",
-        apiKey: "",
-        temperature: 0.72,
-        maxContextTokens: 32000
+        provider: "openai",
+        model: "gpt-image-1",
+        i2iModel: "gpt-image-1",
+        baseUrl: "https://api.openai.com/v1",
+        apiKey: "sk-test",
+        size: "1024x1024"
       }
-    }).model).toMatchObject({
-      provider: "deepseek",
-      model: "deepseek-v4-flash",
-      temperature: 0.72,
-      maxContextTokens: 32000
     });
+    expect(imagePatch.modelTarget).toBe("image");
+    expect(imagePatch.model).toMatchObject({
+      provider: "openai",
+      model: "gpt-image-1",
+      i2iModel: "gpt-image-1",
+      size: "1024x1024"
+    });
+
+    expect(() =>
+      validateAdminSettingsPatch({
+        model: { target: "image", provider: "deepseek", model: "x" }
+      })
+    ).toThrow("model.provider is invalid.");
 
     expect(validateAdminSettingsPatch({
       model: {
