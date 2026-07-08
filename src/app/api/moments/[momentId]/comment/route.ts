@@ -25,8 +25,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ mom
     const start = beginMomentComment(current, { momentId, userId, content, now });
 
     if (!start.allowed) {
-      const persisted = await companionStore.write(start.state);
-      return Response.json({ state: redactStateForClient(scopeStateForUser(persisted, userId)), allowed: false, reply: start.reply });
+      let reply = start.reply;
+      const persisted = await companionStore.update((fresh) => {
+        const blocked = beginMomentComment(fresh, { momentId, userId, content, now });
+        if (blocked.allowed) {
+          return fresh;
+        }
+        reply = blocked.reply;
+        return blocked.state;
+      });
+      return Response.json({ state: redactStateForClient(scopeStateForUser(persisted, userId)), allowed: false, reply });
     }
 
     const modelResult = await createChatReply({

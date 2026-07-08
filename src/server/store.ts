@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { CompanionState } from "@/domain/types";
 import { normalizeState } from "./admin-service";
@@ -39,7 +39,9 @@ export class JsonCompanionStore implements CompanionStore {
 
   async write(state: CompanionState): Promise<CompanionState> {
     await mkdir(dirname(this.filePath), { recursive: true });
-    await writeFile(this.filePath, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    const tmp = `${this.filePath}.${process.pid}.${Date.now()}.tmp`;
+    await writeFile(tmp, `${JSON.stringify(state, null, 2)}\n`, "utf8");
+    await rename(tmp, this.filePath);
     return state;
   }
 

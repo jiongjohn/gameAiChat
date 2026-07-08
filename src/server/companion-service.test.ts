@@ -5,6 +5,7 @@ import {
   activateCharacterForUser,
   applyProactiveResults,
   authenticateUser,
+  beginMomentComment,
   createCharacterForState,
   createInitialState,
   createInviteCode,
@@ -113,6 +114,23 @@ describe("companion service", () => {
     const reliked = toggleMomentLike(unliked.state, { momentId: moment.id, userId: "u_demo", now: "2026-07-06T12:03:00.000Z" });
     expect(reliked.liked).toBe(true);
     expect(reliked.state.affinity.find((item) => item.characterId === "shen-jibai")!.score).toBe(likedScore);
+  });
+
+  test("rejects moment like and comment from a user who does not own the moment", async () => {
+    const { state, moment } = await seedWithMoment();
+
+    expect(() =>
+      toggleMomentLike(state, { momentId: moment.id, userId: "u_intruder", now: "2026-07-06T12:04:00.000Z" })
+    ).toThrow(/not available for interaction/);
+
+    expect(() =>
+      beginMomentComment(state, {
+        momentId: moment.id,
+        userId: "u_intruder",
+        content: "偷偷插一条评论。",
+        now: "2026-07-06T12:04:30.000Z"
+      })
+    ).toThrow(/not available for interaction/);
   });
 
   test("handles a safe moment comment with character reply and affinity bump", async () => {
@@ -379,6 +397,47 @@ describe("companion service", () => {
     expect(aliceScope.users).toHaveLength(1);
     expect(aliceScope.users[0].id).toBe(registered.user.id);
     expect(aliceScope.inviteCodes).toHaveLength(0);
+  });
+
+  test("scopeStateForUser filters foreign moment comments and audit logs", () => {
+    const base = createInitialState("2026-07-06T08:00:00.000Z");
+    const momentA = {
+      id: "moment_a",
+      characterId: "shen-jibai",
+      userId: "userA",
+      content: "A的动态",
+      imageKey: "keyA",
+      status: "published" as const,
+      publishAt: "2026-07-06T08:10:00.000Z",
+      createdAt: "2026-07-06T08:10:00.000Z"
+    };
+    const momentB = {
+      id: "moment_b",
+      characterId: "shen-jibai",
+      userId: "userB",
+      content: "B的动态",
+      imageKey: "keyB",
+      status: "published" as const,
+      publishAt: "2026-07-06T08:11:00.000Z",
+      createdAt: "2026-07-06T08:11:00.000Z"
+    };
+    const state = {
+      ...base,
+      moments: [momentA, momentB],
+      momentComments: [
+        { id: "c_a", momentId: momentA.id, author: "user" as const, content: "A的评论", createdAt: "2026-07-06T08:12:00.000Z" },
+        { id: "c_b", momentId: momentB.id, author: "user" as const, content: "B的私密评论", createdAt: "2026-07-06T08:13:00.000Z" }
+      ],
+      auditLogs: [
+        { id: "log_1", scene: "moment_input", contentRef: "ref", providerResult: "ok", action: "approved", createdAt: "2026-07-06T08:14:00.000Z" }
+      ]
+    };
+
+    const scoped = scopeStateForUser(state, "userA");
+
+    expect(scoped.momentComments.every((c) => c.momentId === momentA.id)).toBe(true);
+    expect(scoped.momentComments.some((c) => c.momentId === momentB.id)).toBe(false);
+    expect(scoped.auditLogs).toHaveLength(0);
   });
 
   test("createCharacterForState avoids id collisions", () => {

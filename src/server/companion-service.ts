@@ -141,6 +141,9 @@ export function scopeStateForUser(state: CompanionState, userId: string): Compan
     state.conversations.filter((item) => item.userId === userId).map((item) => item.id)
   );
   const user = state.users.find((item) => item.id === userId);
+  const scopedMomentIds = new Set(
+    state.moments.filter((item) => item.userId === userId).map((item) => item.id)
+  );
   return {
     ...state,
     users: user ? [user] : [],
@@ -149,8 +152,10 @@ export function scopeStateForUser(state: CompanionState, userId: string): Compan
     facts: state.facts.filter((item) => item.userId === userId),
     affinity: state.affinity.filter((item) => item.userId === userId),
     moments: state.moments.filter((item) => item.userId === userId),
+    momentComments: state.momentComments.filter((item) => scopedMomentIds.has(item.momentId)),
     momentLikes: state.momentLikes.filter((item) => item.userId === userId),
     proactiveMessages: state.proactiveMessages.filter((item) => item.userId === userId),
+    auditLogs: [],
     inviteCodes: []
   };
 }
@@ -877,7 +882,7 @@ export function toggleMomentLike(
   input: { momentId: string; userId: string; now: string }
 ): { state: CompanionState; liked: boolean; likeCount: number } {
   const moment = state.moments.find((item) => item.id === input.momentId);
-  if (!moment || moment.status !== "published") {
+  if (!moment || moment.status !== "published" || moment.userId !== input.userId) {
     throw new Error("Moment is not available for interaction.");
   }
 
@@ -948,7 +953,7 @@ export function beginMomentComment(
   }
 
   const moment = state.moments.find((item) => item.id === input.momentId);
-  if (!moment || moment.status !== "published") {
+  if (!moment || moment.status !== "published" || moment.userId !== input.userId) {
     throw new Error("Moment is not available for interaction.");
   }
   const character = getStateCharacter(state, moment.characterId);
