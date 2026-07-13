@@ -5,6 +5,7 @@ out/
 build/
 *.log
 .DS_Store
+.omo/
 .env
 .env.local
 .env.*.local
